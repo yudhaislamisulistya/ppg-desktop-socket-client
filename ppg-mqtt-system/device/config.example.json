@@ -1,0 +1,12 @@
+{
+  "device_id": "PPG-ABC12345",
+  "mqtt_host": "192.168.1.10",
+  "mqtt_port": 1883,
+  "mqtt_username": "PPG-ABC12345",
+  "mqtt_password": "ganti-dengan-password-perangkat",
+  "sample_period_ms": 10.0,
+  "batch_size": 10,
+  "metrics_interval_ms": 200,
+  "tls": false,
+  "ca_file": null
+}

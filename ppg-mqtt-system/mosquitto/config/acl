@@ -1,0 +1,16 @@
+# Service penyimpanan hanya perlu membaca semua data alat.
+user storage
+topic read ppg/+/raw
+topic read ppg/+/measurement/start
+topic read ppg/+/measurement/result
+topic read ppg/+/status
+
+# Blok user perangkat ditambahkan otomatis di bawah oleh register-device.sh.
+
+# Dashboard prototipe membaca data realtime seluruh alat.
+user dashboard
+topic read ppg/+/raw
+topic read ppg/+/metrics
+topic read ppg/+/measurement/start
+topic read ppg/+/measurement/result
+topic read ppg/+/status

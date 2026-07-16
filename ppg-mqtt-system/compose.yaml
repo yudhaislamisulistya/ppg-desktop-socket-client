@@ -1,0 +1,42 @@
+name: ${COMPOSE_PROJECT_NAME:-ppg-mqtt-system}
+
+services:
+  glucometer-mosquitto:
+    image: eclipse-mosquitto:2.1.2-alpine
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    environment:
+      PUID: ${PUID:-1883}
+      PGID: ${PGID:-1883}
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - glucometer-mosquitto-data:/mosquitto/data
+
+  glucometer-storage:
+    build:
+      context: ./storage
+    restart: unless-stopped
+    depends_on:
+      - glucometer-mosquitto
+    environment:
+      MQTT_HOST: glucometer-mosquitto
+      MQTT_PORT: "1883"
+      MQTT_USERNAME: storage
+      MQTT_PASSWORD: ${STORAGE_PASSWORD}
+      SQLITE_PATH: ${SQLITE_PATH:-/data/ppg.sqlite3}
+      TZ: ${TZ:-Asia/Jakarta}
+    volumes:
+      - ./data:/data
+
+  glucometer-frontend:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-9100}:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+
+volumes:
+  glucometer-mosquitto-data:

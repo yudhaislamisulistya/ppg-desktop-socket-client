@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PPG Realtime Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">GLUCOMETER / PPG</p>
+          <h1>Realtime Monitor</h1>
+        </div>
+        <span id="connection-status" class="badge offline">Disconnected</span>
+      </header>
+
+      <section class="panel connection-panel">
+        <label>
+          Broker host
+          <input id="host" autocomplete="off">
+        </label>
+        <label>
+          WebSocket port
+          <input id="port" type="number" value="9001">
+        </label>
+        <label>
+          Username
+          <input id="username" value="dashboard" autocomplete="username">
+        </label>
+        <label>
+          Password
+          <input id="password" type="password" autocomplete="current-password">
+        </label>
+        <label>
+          Device ID
+          <input id="device-id" value="+" placeholder="PPG-ABC12345 atau +">
+        </label>
+        <button id="connect-button">Connect</button>
+      </section>
+
+      <section class="stats">
+        <article class="panel">
+          <span>Device</span>
+          <strong id="current-device">-</strong>
+        </article>
+        <article class="panel">
+          <span>Mode</span>
+          <strong id="current-mode">-</strong>
+        </article>
+        <article class="panel">
+          <span>Measurement</span>
+          <strong id="measurement-id">-</strong>
+        </article>
+        <article class="panel">
+          <span>SI</span>
+          <strong id="realtime-si">-</strong>
+        </article>
+        <article class="panel">
+          <span>HRV</span>
+          <strong id="realtime-hrv">-</strong>
+        </article>
+        <article class="panel">
+          <span>BMI</span>
+          <strong id="realtime-bmi">-</strong>
+        </article>
+        <article class="panel">
+          <span>Age</span>
+          <strong id="realtime-age">-</strong>
+        </article>
+        <article class="panel">
+          <span>Voltage</span>
+          <strong id="realtime-voltage">-</strong>
+        </article>
+        <article class="panel">
+          <span>ADC</span>
+          <strong id="last-adc">-</strong>
+        </article>
+      </section>
+
+      <section class="panel metrics-panel">
+        <div class="chart-heading">
+          <h2>MFCC realtime</h2>
+          <span>latest coefficients</span>
+        </div>
+        <pre id="realtime-mfcc">[]</pre>
+      </section>
+
+      <section class="panel chart-panel">
+        <div class="chart-heading">
+          <div>
+            <p class="eyebrow">RAW ADC</p>
+            <h2>PPG waveform</h2>
+          </div>
+          <span id="sample-count">0 samples</span>
+        </div>
+        <canvas id="chart"></canvas>
+      </section>
+
+      <section class="panel">
+        <div class="chart-heading">
+          <h2>Hasil terakhir</h2>
+          <span id="result-status">Belum ada</span>
+        </div>
+        <pre id="last-result">{}</pre>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/mqtt@5.15.2/dist/mqtt.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
