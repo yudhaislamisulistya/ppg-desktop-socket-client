@@ -1,27 +1,30 @@
 name: ${COMPOSE_PROJECT_NAME:-ppg-mqtt-system}
 
 services:
-  glucometer-mosquitto:
+  mosquitto:
     image: eclipse-mosquitto:2.1.2-alpine
     restart: unless-stopped
     ports:
       - "1883:1883"
       - "9001:9001"
-    environment:
-      PUID: ${PUID:-1883}
-      PGID: ${PGID:-1883}
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
-      - glucometer-mosquitto-data:/mosquitto/data
+      - mosquitto-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1883"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
-  glucometer-storage:
+  storage:
     build:
       context: ./storage
     restart: unless-stopped
     depends_on:
-      - glucometer-mosquitto
+      mosquitto:
+        condition: service_healthy
     environment:
-      MQTT_HOST: glucometer-mosquitto
+      MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
       MQTT_USERNAME: storage
       MQTT_PASSWORD: ${STORAGE_PASSWORD}
@@ -30,7 +33,7 @@ services:
     volumes:
       - ./data:/data
 
-  glucometer-frontend:
+  frontend:
     image: nginx:alpine
     restart: unless-stopped
     ports:
@@ -39,4 +42,4 @@ services:
       - ./frontend:/usr/share/nginx/html:ro
 
 volumes:
-  glucometer-mosquitto-data:
+  mosquitto-data:

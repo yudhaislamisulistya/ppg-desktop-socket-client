@@ -33,51 +33,38 @@ Preview dan recording memakai topic `raw` serta `metrics` yang sama; pembeda uta
 ## Struktur folder
 
 ```text
-ppg-mqtt-system/
-├── compose.yaml
-├── .env.example
-├── FRONTEND_INTEGRATION.md       # Handoff untuk tim frontend
-├── data/                         # ppg.sqlite3 dibuat di sini
-├── mosquitto/config/
-│   ├── mosquitto.conf
-│   ├── acl
-│   └── passwords                # dibuat oleh script, tidak masuk Git
-├── scripts/
-│   ├── init-broker-users.sh
-│   ├── register-device.sh
-│   └── remove-device.sh
-├── device/
-│   ├── mqtt_flow.py
-│   ├── pp2_mqtt_app.py
-│   ├── simulator.py
-│   ├── config.example.json
-│   └── PP2_INTEGRATION.md
-├── storage/
-│   ├── app.py
-│   ├── database.py
-│   └── Dockerfile
-├── frontend/
-│   ├── index.html
-│   ├── app.js
-│   └── styles.css
-├── tools/
-│   ├── list_measurements.py
-│   └── export_measurement.py
-└── tests/
-    └── test_database.py
+ppg-desktop-socket-client/
+├── ppg-desktop/
+│   ├── pp2.py                    # Aplikasi alat + MQTT langsung
+│   └── mqtt_config.example.json
+└── ppg-mqtt-system/
+    ├── compose.yaml
+    ├── .env.example
+    ├── FRONTEND_INTEGRATION.md
+    ├── data/
+    ├── mosquitto/config/
+    ├── scripts/
+    ├── device/
+    │   ├── mqtt_flow.py
+    │   ├── simulator.py
+    │   └── config.example.json
+    ├── storage/
+    ├── frontend/
+    ├── tools/
+    └── tests/
 ```
 
 ## 1. Persyaratan server
 
 - Linux/VPS atau komputer yang memiliki Docker.
 - Docker Compose v2 (`docker compose`).
-- Port `1883`, `9001`, dan `8090` tersedia.
+- Port `1883`, `9001`, dan `9100` tersedia.
 
 Untuk uji LAN:
 
 - `1883`: MQTT Raspberry Pi.
 - `9001`: MQTT over WebSocket untuk browser.
-- `8090`: halaman frontend.
+- `9100`: halaman frontend.
 
 Jangan membuka port `1883` dan `9001` tanpa TLS ke internet publik untuk penggunaan produksi.
 
@@ -94,24 +81,13 @@ Edit `.env`:
 
 ```dotenv
 COMPOSE_PROJECT_NAME=ppg-mqtt-system
-FRONTEND_PORT=8090
+FRONTEND_PORT=9100
 STORAGE_PASSWORD=password-storage-yang-kuat
 SQLITE_PATH=/data/ppg.sqlite3
 TZ=Asia/Jakarta
-PUID=1000
-PGID=1000
 ```
 
 Password storage harus sama dengan akun `storage` pada broker. Script berikut akan membuatnya dari `.env`.
-
-Pada Linux, isi `PUID` dan `PGID` dengan:
-
-```bash
-id -u
-id -g
-```
-
-Nilai ini membuat container Mosquitto dapat membaca file password milik user host tanpa membuka permission file tersebut ke semua user.
 
 `COMPOSE_PROJECT_NAME` menjadi prefix container. Dengan nilai default, nama
 container akan terlihat seperti:
@@ -122,7 +98,7 @@ ppg-mqtt-system-storage-1
 ppg-mqtt-system-frontend-1
 ```
 
-`FRONTEND_PORT` adalah port pada host dan dapat diganti jika `8090` juga sudah
+`FRONTEND_PORT` adalah port pada host dan dapat diganti jika `9100` juga sudah
 digunakan. Port di dalam container tetap `80`.
 
 ## 3. Buat akun storage dan dashboard
@@ -137,6 +113,7 @@ Script akan:
 1. Membuat akun `storage` menggunakan `STORAGE_PASSWORD`.
 2. Meminta password interaktif untuk akun `dashboard`.
 3. Membuat `mosquitto/config/passwords`.
+4. Mengatur owner file password ke user `mosquitto` di dalam container.
 
 Akun `storage` hanya membaca data untuk database. Akun `dashboard` hanya dipakai frontend prototipe.
 
@@ -180,15 +157,22 @@ docker compose restart mosquitto
 ## 5. Jalankan server
 
 ```bash
+chmod +x scripts/*.sh
 docker compose up -d --build
 docker compose ps
 docker compose logs -f mosquitto storage
 ```
 
+Validasi seluruh service:
+
+```bash
+./scripts/check-services.sh
+```
+
 Halaman dashboard:
 
 ```text
-http://IP_SERVER:8090
+http://IP_SERVER:9100
 ```
 
 Jika `FRONTEND_PORT` diubah pada `.env`, gunakan port tersebut pada URL.
@@ -203,32 +187,37 @@ Isi:
 
 Password dashboard tidak disimpan oleh halaman.
 
-## 6. Konfigurasi Raspberry Pi
+Untuk deployment pada `202.141.15.3`, URL development menjadi:
 
-Pada Raspberry Pi:
-
-```bash
-cd device
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-cp config.example.json config.json
+```text
+Frontend          : http://202.141.15.3:9100
+MQTT TCP alat     : 202.141.15.3:1883
+MQTT WebSocket    : ws://202.141.15.3:9001
 ```
 
-Jalankan launcher dari environment Python yang sudah dapat menjalankan `pp2.py`. Untuk Raspberry Pi OS Desktop, Tkinter biasanya dapat dipasang dengan:
+## 6. Konfigurasi dan jalankan `pp2.py` pada Raspberry Pi
+
+Clone atau salin repository dengan struktur folder tetap, lalu:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r ppg-desktop/requirements.txt
+cp ppg-desktop/mqtt_config.example.json ppg-desktop/mqtt_config.json
+```
+
+Untuk Raspberry Pi OS Desktop, Tkinter biasanya dipasang dengan:
 
 ```bash
 sudo apt install python3-tk
 ```
 
-Dependency pengolahan sinyal (`pyserial`, `matplotlib`, `numpy`, `scipy`, dan `librosa`) tetap mengikuti instalasi aplikasi `pp2.py` lama.
-
-Edit `config.json`:
+Edit `ppg-desktop/mqtt_config.json`:
 
 ```json
 {
   "device_id": "PPG-ABC12345",
-  "mqtt_host": "192.168.1.10",
+  "mqtt_host": "202.141.15.3",
   "mqtt_port": 1883,
   "mqtt_username": "PPG-ABC12345",
   "mqtt_password": "password-alat-ini",
@@ -244,6 +233,27 @@ Edit `config.json`:
 
 `metrics_interval_ms=200` berarti snapshot metrik dikirim maksimal sekitar 5 kali per detik per alat.
 
+Jalankan aplikasi utama:
+
+```bash
+python ppg-desktop/pp2.py
+```
+
+`pp2.py` otomatis mengambil:
+
+```text
+MQTT helper : ppg-mqtt-system/device/mqtt_flow.py
+Config      : ppg-desktop/mqtt_config.json
+```
+
+Jika struktur folder pada Raspberry Pi berbeda:
+
+```bash
+MQTT_DEVICE_DIR=/path/ke/ppg-mqtt-system/device \
+MQTT_CONFIG=/path/ke/mqtt_config.json \
+python /path/ke/pp2.py
+```
+
 ## 7. Uji tanpa Arduino
 
 Simulator menjalankan:
@@ -255,10 +265,13 @@ Simulator menjalankan:
 5. Disconnect.
 
 ```bash
-cd device
-. .venv/bin/activate
-python simulator.py --config config.json
+cd ppg-mqtt-system/device
+cp config.example.json config.json
+../../.venv/bin/python simulator.py --config config.json
 ```
+
+Gunakan device ID dan password perangkat uji yang sudah didaftarkan pada
+broker.
 
 Saat simulator berjalan:
 
@@ -267,45 +280,9 @@ Saat simulator berjalan:
 - Data setelah sesi dimulai masuk SQLite.
 - Hasil akhir tersimpan sebagai `completed`.
 
-## 8. Jalankan `pp2.py` dengan integrasi MQTT
+## 8. Integrasi MQTT yang sudah ada di `pp2.py`
 
-Launcher siap pakai berada di:
-
-```text
-device/pp2_mqtt_app.py
-```
-
-Launcher mewarisi class dari `pp2.py` asli, sehingga perhitungan sinyal, UI, CSV, dan countdown tetap memakai sumber lama. Hanya method alur MQTT yang dioverride.
-
-Dengan struktur folder saat ini:
-
-```bash
-cd device
-. .venv/bin/activate
-python pp2_mqtt_app.py
-```
-
-Jika lokasi `pp2.py` berbeda:
-
-```bash
-PP2_SOURCE=/path/ke/pp2.py python pp2_mqtt_app.py
-```
-
-Jika lokasi konfigurasi berbeda:
-
-```bash
-MQTT_CONFIG=/path/ke/config.json python pp2_mqtt_app.py
-```
-
-## 9. Integrasi manual ke `pp2.py`
-
-Panduan perubahan per method tersedia di:
-
-```text
-device/PP2_INTEGRATION.md
-```
-
-Titik integrasi:
+Titik integrasi langsung:
 
 ```text
 start_serial()     -> mqtt.connect()
@@ -317,9 +294,12 @@ finish_logging()   -> mqtt.complete_measurement(...)
 stop_serial()      -> mqtt.disconnect()
 ```
 
-File `pp2.py` lama tidak diubah oleh proyek ini.
+`device/pp2_mqtt_app.py` hanya dipertahankan sebagai compatibility launcher.
+Penggunaan normal cukup menjalankan `ppg-desktop/pp2.py`.
 
-## 10. Kontrak pesan
+Penjelasan implementasi tersedia di `device/PP2_INTEGRATION.md`.
+
+## 9. Kontrak pesan
 
 ### Live preview
 
@@ -444,7 +424,7 @@ Payload:
 }
 ```
 
-## 11. Struktur SQLite
+## 10. Struktur SQLite
 
 Database berada di:
 
@@ -460,7 +440,7 @@ Tabel:
 
 Kunci utama `raw_batches` adalah `(measurement_id, sequence)`. Jika pesan QoS 1 diterima dua kali, duplikat tidak disimpan.
 
-## 12. Lihat dan ekspor data
+## 11. Lihat dan ekspor data
 
 Daftar measurement:
 
@@ -481,7 +461,7 @@ Ekspor raw satu measurement menjadi CSV:
 python3 tools/export_measurement.py MEASUREMENT_ID --output hasil.csv
 ```
 
-## 13. Test lokal
+## 12. Test lokal
 
 Test database:
 
@@ -493,7 +473,34 @@ Pemeriksaan syntax:
 
 ```bash
 python3 -m compileall device storage tools tests
+python3 -m py_compile ../ppg-desktop/pp2.py
 node --check frontend/app.js
+sh -n scripts/*.sh
+```
+
+## 13. Troubleshooting deployment
+
+Jika `1883` atau `9001` menghasilkan `Connection refused`:
+
+```bash
+docker compose ps -a
+docker compose logs --tail=200 mosquitto
+sudo ss -lntp | grep -E ':(1883|9001|9100)\b'
+```
+
+Jika log menunjukkan file password tidak dapat dibaca, jalankan ulang:
+
+```bash
+./scripts/init-broker-users.sh
+./scripts/register-device.sh PPG-ABC12345
+docker compose restart mosquitto
+```
+
+Jika sebelumnya memakai nama service `glucometer-*`, bersihkan container lama:
+
+```bash
+docker compose down --remove-orphans
+docker compose up -d --build
 ```
 
 ## 14. Batas versi minimal ini

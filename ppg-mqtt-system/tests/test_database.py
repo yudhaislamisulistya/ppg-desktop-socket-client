@@ -1,6 +1,7 @@
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -96,6 +97,26 @@ class StorageDatabaseTest(unittest.TestCase):
         self.assertEqual(measurement["raw_batch_count"], 1)
         self.assertEqual(measurement["raw_sample_count"], 3)
         self.assertEqual(len(json.loads(measurement["mfcc_json"])), 13)
+
+    def test_database_can_be_used_from_mqtt_network_thread(self):
+        errors = []
+
+        def mqtt_callback():
+            try:
+                self.db.update_device_status(
+                    device_id="PPG-THREAD01",
+                    state="online",
+                    timestamp=self.received_at,
+                    received_at=self.received_at,
+                )
+            except Exception as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=mqtt_callback)
+        thread.start()
+        thread.join()
+
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

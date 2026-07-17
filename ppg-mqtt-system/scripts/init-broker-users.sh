@@ -29,13 +29,13 @@ mkdir -p "$CONFIG_DIR"
 
 if [ -f "$CONFIG_DIR/passwords" ]; then
   docker run --rm \
-    --user "$(id -u):$(id -g)" \
+    --user 0:0 \
     -v "$CONFIG_DIR:/mosquitto/config" \
     "$IMAGE" \
     mosquitto_passwd -b /mosquitto/config/passwords storage "$STORAGE_PASSWORD"
 else
   docker run --rm \
-    --user "$(id -u):$(id -g)" \
+    --user 0:0 \
     -v "$CONFIG_DIR:/mosquitto/config" \
     "$IMAGE" \
     mosquitto_passwd -b -c /mosquitto/config/passwords storage "$STORAGE_PASSWORD"
@@ -43,10 +43,15 @@ fi
 
 echo "Buat atau perbarui password akun dashboard:"
 docker run --rm -it \
-  --user "$(id -u):$(id -g)" \
+  --user 0:0 \
   -v "$CONFIG_DIR:/mosquitto/config" \
   "$IMAGE" \
   mosquitto_passwd /mosquitto/config/passwords dashboard
 
-chmod 600 "$CONFIG_DIR/passwords"
+docker run --rm \
+  --user 0:0 \
+  -v "$CONFIG_DIR:/mosquitto/config" \
+  "$IMAGE" \
+  sh -c "chown mosquitto:mosquitto /mosquitto/config/passwords && chmod 600 /mosquitto/config/passwords"
+
 echo "Akun storage dan dashboard siap."

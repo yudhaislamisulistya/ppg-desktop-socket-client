@@ -38,12 +38,16 @@ if [ ! -f "$PASSWORD_FILE" ]; then
 fi
 
 docker run --rm -it \
-  --user "$(id -u):$(id -g)" \
+  --user 0:0 \
   -v "$CONFIG_DIR:/mosquitto/config" \
   "$IMAGE" \
   mosquitto_passwd /mosquitto/config/passwords "$DEVICE_ID"
 
-chmod 600 "$PASSWORD_FILE"
+docker run --rm \
+  --user 0:0 \
+  -v "$CONFIG_DIR:/mosquitto/config" \
+  "$IMAGE" \
+  sh -c "chown mosquitto:mosquitto /mosquitto/config/passwords && chmod 600 /mosquitto/config/passwords"
 
 BEGIN_MARKER="# BEGIN DEVICE $DEVICE_ID"
 END_MARKER="# END DEVICE $DEVICE_ID"

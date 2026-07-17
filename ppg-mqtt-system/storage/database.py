@@ -72,7 +72,13 @@ class StorageDatabase:
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(self.path, timeout=30)
+        # Paho memanggil handler pesan dari network thread, sementara object
+        # database dibuat oleh main thread sebelum loop MQTT dimulai.
+        self.connection = sqlite3.connect(
+            self.path,
+            timeout=30,
+            check_same_thread=False,
+        )
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA journal_mode = WAL")
         self.connection.execute("PRAGMA synchronous = NORMAL")

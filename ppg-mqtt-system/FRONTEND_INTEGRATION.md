@@ -40,7 +40,7 @@ Tim frontend akan menerima data berikut dari tim IoT:
 
 | Nama | Contoh development | Keterangan |
 |---|---|---|
-| MQTT WebSocket URL | `ws://192.168.1.10:9001` | Browser wajib menggunakan `ws://` atau `wss://` |
+| MQTT WebSocket URL | `ws://202.141.15.3:9001` | Browser wajib menggunakan `ws://` atau `wss://` |
 | MQTT username | `dashboard` | Akun read-only |
 | MQTT password | Diberikan terpisah | Jangan disimpan di repository |
 | Device ID | `PPG-ABC12345` | Case-sensitive |
@@ -604,7 +604,7 @@ Penggunaan:
 ```typescript
 const client = connectPpgDevice(
   {
-    url: "ws://192.168.1.10:9001",
+    url: "ws://202.141.15.3:9001",
     username: "dashboard",
     password: runtimeConfig.mqttPassword,
     deviceId: "PPG-ABC12345",

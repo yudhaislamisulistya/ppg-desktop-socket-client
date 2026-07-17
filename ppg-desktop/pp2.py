@@ -9,13 +9,42 @@ import matplotlib.animation as animation
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from scipy.signal import find_peaks
+# pyrefly: ignore [missing-import]
 import librosa
 import threading
 import csv
 from datetime import datetime
+import os
 import platform
 import warnings
 import re
+import sys
+from pathlib import Path
+
+
+APP_DIR = Path(__file__).resolve().parent
+MQTT_DEVICE_DIR = Path(
+    os.getenv(
+        "MQTT_DEVICE_DIR",
+        APP_DIR.parent / "ppg-mqtt-system" / "device",
+    )
+).expanduser().resolve()
+MQTT_FLOW_FILE = MQTT_DEVICE_DIR / "mqtt_flow.py"
+if not MQTT_FLOW_FILE.exists():
+    raise FileNotFoundError(
+        f"mqtt_flow.py tidak ditemukan di {MQTT_FLOW_FILE}. "
+        "Atur environment MQTT_DEVICE_DIR ke folder device ppg-mqtt-system."
+    )
+if str(MQTT_DEVICE_DIR) not in sys.path:
+    sys.path.insert(0, str(MQTT_DEVICE_DIR))
+
+# pyrefly: ignore [missing-import]
+from mqtt_flow import PpgMqttFlow, load_config
+
+
+MQTT_CONFIG = Path(
+    os.getenv("MQTT_CONFIG", APP_DIR / "mqtt_config.json")
+).expanduser().resolve()
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -404,6 +433,16 @@ class ArduinoPlotApp:
         self.dataList = []
         self.data_lock = threading.Lock()
 
+        # Nilai terbaru yang dikirim ke topic ppg/{device_id}/metrics.
+        self.latest_si = None
+        self.latest_hrv = None
+        self.latest_bmi = None
+        self.latest_age = None
+        self.latest_mfcc = None
+        self.latest_voltage = None
+        self.latest_adc = None
+        self.metrics_after_id = None
+
         # Antropometri
         self.last_age = None
         self.last_height = None
@@ -420,7 +459,7 @@ class ArduinoPlotApp:
         self.measurement_in_progress = False
 
         # Countdown
-        self.countdown_value = 60
+        self.countdown_value = 300
         self.countdown_after_id = None
 
         # Window references
@@ -501,6 +540,18 @@ class ArduinoPlotApp:
         self.status_label = tk.Label(control_frame, text="Disconnected",
                                      fg=self.accent_color, font=self.lbl_font, bg=self.bg_color)
         self.status_label.pack(side=tk.LEFT, padx=8)
+
+        try:
+            self.mqtt = PpgMqttFlow.from_config(
+                load_config(MQTT_CONFIG),
+                status_callback=self.on_mqtt_status,
+            )
+        except (OSError, KeyError, TypeError, ValueError) as error:
+            messagebox.showerror(
+                "MQTT Configuration Error",
+                f"Gagal membaca konfigurasi MQTT:\n{MQTT_CONFIG}\n\n{error}",
+            )
+            raise
 
         # Baris 2: input (dengan Filename)
         info_frame = tk.Frame(self.bottom_frame, bg=self.bg_color)
@@ -594,6 +645,7 @@ class ArduinoPlotApp:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.refresh_ports()
+        self.schedule_metrics_publish()
 
     def disable_submit_button(self):
         try:
@@ -635,6 +687,66 @@ class ArduinoPlotApp:
 
     # ==================== SERIAL ====================
 
+    def on_mqtt_status(self, status):
+        colors = {
+            "connected": "#34c759",
+            "connecting": "#ff9500",
+            "reconnecting": "#ff9500",
+            "rejected": "#ff3b30",
+            "error": "#ff3b30",
+            "disconnected": "#ff3b30",
+        }
+
+        def update():
+            serial_status = "connected" if self.running else "off"
+            self.status_label.config(
+                text=f"Serial: {serial_status} | MQTT: {status}",
+                fg=colors.get(status, self.accent_color),
+            )
+
+        try:
+            self.root.after(0, update)
+        except tk.TclError:
+            pass
+
+    @staticmethod
+    def metric_number(value):
+        if value is None or isinstance(value, str):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if np.isfinite(number) else None
+
+    def schedule_metrics_publish(self):
+        try:
+            self.metrics_after_id = self.root.after(
+                self.mqtt.metrics_interval_ms,
+                self.publish_metrics_tick,
+            )
+        except tk.TclError:
+            self.metrics_after_id = None
+
+    def publish_metrics_tick(self):
+        self.metrics_after_id = None
+        try:
+            if self.running:
+                recording = self.mqtt.measurement_id is not None
+                self.mqtt.publish_metrics(
+                    si_m_s=self.latest_si if recording else None,
+                    hrv_ms=self.latest_hrv,
+                    bmi=self.latest_bmi if recording else None,
+                    age_years=self.latest_age if recording else None,
+                    mfcc=self.latest_mfcc,
+                    voltage_v=self.latest_voltage,
+                    adc=self.latest_adc,
+                )
+        except Exception as error:
+            print("MQTT metrics error:", error)
+        finally:
+            self.schedule_metrics_publish()
+
     def refresh_ports(self):
         ports = list_ports.comports()
         port_names = [p.device for p in ports]
@@ -657,25 +769,42 @@ class ArduinoPlotApp:
         try:
             self. ser = serial.Serial(port_name, SERIAL_BAUD, timeout=0.1)
             self.running = True
+            self.mqtt.connect()
             self.serial_thread = threading.Thread(target=self.serial_reader, daemon=True)
             self.serial_thread.start()
-            self.status_label.config(text=f"Connected:  {port_name}", fg="#34c759")
+            self.status_label.config(
+                text="Serial: connected | MQTT: connecting",
+                fg="#ff9500",
+            )
         except serial.SerialException as e:
             messagebox.showerror("Serial Error", f"Gagal membuka port {port_name}:\n{e}")
             self.status_label.config(text="Disconnected", fg="#ff3b30")
             self.running = False
             self.ser = None
+        except Exception as error:
+            self.running = False
+            try:
+                if self.ser and self.ser.is_open:
+                    self.ser.close()
+            except Exception:
+                pass
+            self.ser = None
+            messagebox.showerror("MQTT Error", f"Gagal memulai MQTT:\n{error}")
+            self.status_label.config(text="Disconnected", fg="#ff3b30")
 
     def stop_serial(self):
-        if not self.running:
-            return
         self.running = False
         try:
             if self.ser and self.ser.is_open:
                 self.ser.close()
         except Exception: 
             pass
-        self.status_label.config(text="Disconnected", fg="#ff3b30")
+        self.ser = None
+        self.mqtt.disconnect()
+        self.status_label.config(
+            text="Serial: off | MQTT: disconnected",
+            fg="#ff3b30",
+        )
 
     def serial_reader(self):
         while self.running and self.ser and self.ser.is_open:
@@ -688,6 +817,7 @@ class ArduinoPlotApp:
                     self.dataList.append(value)
                     if len(self.dataList) > 5000:
                         self.dataList = self.dataList[-5000:]
+                self.mqtt.add_sample(value)
             except ValueError:
                 continue
             except serial.SerialException as e:
@@ -697,9 +827,16 @@ class ArduinoPlotApp:
                 print("Unexpected error:", e)
                 break
         self.running = False
+        self.mqtt.disconnect()
         try:
-            self.root.after(0, lambda: self.status_label.config(text="Disconnected", fg="#ff3b30"))
-        except:
+            self.root.after(
+                0,
+                lambda: self.status_label.config(
+                    text="Serial: off | MQTT: disconnected",
+                    fg="#ff3b30",
+                ),
+            )
+        except tk.TclError:
             pass
 
     # ==================== NUMPAD ====================
@@ -861,7 +998,7 @@ class ArduinoPlotApp:
         tk.Button(btn_frame, text="Cancel", command=on_settings_close, font=self.btn_font,
                   bg="#ff3b30", fg="#ffffff", bd=0, relief="flat", width=7).pack(side=tk.LEFT, padx=8)
 
-    # ==================== MEASUREMENT 60s ====================
+    # ==================== MEASUREMENT 300s ====================
 
     def start_logging(self):
         self.logging_active = True
@@ -872,12 +1009,18 @@ class ArduinoPlotApp:
         if not self.logging_active:
             return
 
-        self.logging_active = False
+        avg_si, avg_hrv, avg_mfcc, avg_vol, avg_adc = self. realTimePlot.compute_overall_means()
+        self.mqtt.complete_measurement(
+            si_mean=avg_si,
+            hrv_mean=avg_hrv,
+            mfcc_mean=avg_mfcc,
+            voltage_mean=avg_vol,
+            adc_mean=avg_adc,
+        )
 
+        self.logging_active = False
         self.measurement_in_progress = False
         self. enable_submit_button()
-
-        avg_si, avg_hrv, avg_mfcc, avg_vol, avg_adc = self. realTimePlot.compute_overall_means()
 
         if not np.isnan(avg_si):
             self.update_si_label(avg_si)
@@ -987,6 +1130,15 @@ class ArduinoPlotApp:
             height_m = height_cm / 100.0
             self.last_bmi = weight_kg / (height_m ** 2)
 
+            self.mqtt.begin_measurement(
+                patient_code=self.last_filename or "N/A",
+                age=self.last_age,
+                height_cm=self.last_height,
+                weight_kg=self.last_weight,
+                bmi=self.last_bmi,
+                duration_seconds=300,
+            )
+
             self.update_bmi_label(self.last_bmi)
             self.update_age_value_label(self.last_age)
 
@@ -996,6 +1148,8 @@ class ArduinoPlotApp:
             self.start_logging()
             self.start_countdown()
 
+        except RuntimeError as error:
+            messagebox.showerror("MQTT Error", str(error))
         except ValueError as e: 
             print(f"DEBUG - ValueError: {e}")
             messagebox.showerror("Invalid Input", "Masukkan umur, tinggi, berat yang valid.\n\nPastikan:\n- Semua field terisi\n- Hanya angka dan titik desimal\n- Nilai lebih dari 0")
@@ -1041,6 +1195,7 @@ class ArduinoPlotApp:
                         pass
                     self.countdown_after_id = None
 
+                self.mqtt.cancel_measurement("measurement_window_closed")
                 self.logging_active = False
                 self. measurement_in_progress = False
                 self.enable_submit_button()
@@ -1063,7 +1218,7 @@ class ArduinoPlotApp:
             main_frame.pack(expand=True, fill=tk.BOTH, padx=15, pady=10)
 
             self.countdown_label = tk.Label(
-                main_frame, text="60",
+                main_frame, text="300",
                 font=("Helvetica", 32, "bold"),
                 bg=self.bg_color, fg="#007aff"
             )
@@ -1154,36 +1309,48 @@ class ArduinoPlotApp:
     # ==================== LABEL UPDATES ====================
 
     def update_si_label(self, si):
+        self.latest_si = self.metric_number(si)
         try:
             self.si_label.config(text=f"SI: {si}" if isinstance(si, str) else f"SI: {si:.4f} m/s")
         except tk.TclError:
             pass
 
     def update_hrv_label(self, hrv):
+        self.latest_hrv = self.metric_number(hrv)
         try:
             self.hrv_label. config(text=f"HRV: {hrv}" if isinstance(hrv, str) else f"HRV: {hrv:.2f} ms")
         except tk.TclError:
             pass
 
     def update_bmi_label(self, bmi):
+        self.latest_bmi = self.metric_number(bmi)
         try:
             self.bmi_label.config(text=f"BMI: {bmi}" if isinstance(bmi, str) else f"BMI: {bmi:.2f}")
         except tk.TclError:
             pass
 
     def update_age_value_label(self, age):
+        number = self.metric_number(age)
+        self.latest_age = int(round(number)) if number is not None else None
         try:
             self.age_value_label.config(text=f"Age: {age}" if isinstance(age, str) else f"Age: {int(age)}")
         except tk.TclError:
             pass
 
     def update_vol_label(self, vol):
+        self.latest_voltage = self.metric_number(vol)
         try:
             self.vol_label.config(text=f"Vol: {vol}" if isinstance(vol, str) else f"Vol: {vol:.2f} V")
         except tk.TclError:
             pass
 
     def update_adc_label(self, adc):
+        number = self.metric_number(adc)
+        self.latest_adc = (
+            float(max(0, min(1023, round(number))))
+            if number is not None
+            else None
+        )
         try:
             adc_val = int(round(float(adc)))
             adc_val = max(0, min(1023, adc_val))
@@ -1192,6 +1359,18 @@ class ArduinoPlotApp:
             pass
 
     def update_mfcc_label(self, mfccs):
+        if isinstance(mfccs, str):
+            self.latest_mfcc = None
+        else:
+            try:
+                values = [float(value) for value in mfccs]
+                self.latest_mfcc = (
+                    values
+                    if values and all(np.isfinite(value) for value in values)
+                    else None
+                )
+            except (TypeError, ValueError):
+                self.latest_mfcc = None
         try:
             if isinstance(mfccs, str):
                 self.mfcc_label.config(text=f"MFCC: {mfccs}")
@@ -1204,6 +1383,13 @@ class ArduinoPlotApp:
     # ==================== CLOSE ====================
 
     def on_close(self):
+        if self.metrics_after_id is not None:
+            try:
+                self.root.after_cancel(self.metrics_after_id)
+            except tk.TclError:
+                pass
+            self.metrics_after_id = None
+
         if self.countdown_after_id is not None:
             try: 
                 self.root.after_cancel(self.countdown_after_id)
