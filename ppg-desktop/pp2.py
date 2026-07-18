@@ -4,10 +4,15 @@ from tkinter import ttk
 import time
 import serial
 import serial.tools.list_ports as list_ports
+# pyrefly: ignore [missing-import]
 import matplotlib.pyplot as plt
+# pyrefly: ignore [missing-import]
 import matplotlib.animation as animation
+# pyrefly: ignore [missing-import]
 import numpy as np
+# pyrefly: ignore [missing-import]
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+# pyrefly: ignore [missing-import]
 from scipy.signal import find_peaks
 # pyrefly: ignore [missing-import]
 import librosa

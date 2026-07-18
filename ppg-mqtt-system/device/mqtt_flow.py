@@ -67,6 +67,8 @@ class PpgMqttFlow:
         metrics_interval_ms: int = 200,
         tls: bool = False,
         ca_file: str | None = None,
+        transport: str = "tcp",
+        ws_path: str = "/mqtt",
         status_callback: Callable[[str], None] | None = None,
     ) -> None:
         if not device_id.startswith("PPG-"):
@@ -75,6 +77,8 @@ class PpgMqttFlow:
             raise ValueError("batch_size minimal 1")
         if metrics_interval_ms < 50:
             raise ValueError("metrics_interval_ms minimal 50")
+        if transport not in ("tcp", "websockets"):
+            raise ValueError("transport harus 'tcp' atau 'websockets'")
 
         self.device_id = device_id
         self.sample_period_ms = float(sample_period_ms)
@@ -96,11 +100,15 @@ class PpgMqttFlow:
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=device_id,
             protocol=mqtt.MQTTv311,
+            transport=transport,
         )
         self.client.username_pw_set(mqtt_username, mqtt_password)
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
+
+        if transport == "websockets":
+            self.client.ws_set_options(path=ws_path)
 
         if tls:
             self.client.tls_set(ca_certs=ca_file)
@@ -138,6 +146,8 @@ class PpgMqttFlow:
             metrics_interval_ms=config.get("metrics_interval_ms", 200),
             tls=config.get("tls", False),
             ca_file=config.get("ca_file"),
+            transport=config.get("transport", "tcp"),
+            ws_path=config.get("ws_path", "/mqtt"),
             status_callback=status_callback,
         )
 

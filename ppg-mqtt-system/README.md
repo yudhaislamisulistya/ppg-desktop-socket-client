@@ -212,7 +212,8 @@ Untuk Raspberry Pi OS Desktop, Tkinter biasanya dipasang dengan:
 sudo apt install python3-tk
 ```
 
-Edit `ppg-desktop/mqtt_config.json`:
+Edit `ppg-desktop/mqtt_config.json`. Jika broker diakses lewat IP dan port MQTT
+mentah masih terbuka:
 
 ```json
 {
@@ -228,6 +229,32 @@ Edit `ppg-desktop/mqtt_config.json`:
   "ca_file": null
 }
 ```
+
+Jika broker diakses lewat domain di belakang reverse proxy HTTPS dan port MQTT
+mentah (1883/8883) tidak dibuka ke internet, gunakan MQTT over WebSocket (WSS)
+lewat port 443:
+
+```json
+{
+  "device_id": "PPG-ABC12345",
+  "mqtt_host": "mqtt-glucometer.sivia.id",
+  "mqtt_port": 443,
+  "mqtt_username": "PPG-ABC12345",
+  "mqtt_password": "password-alat-ini",
+  "sample_period_ms": 10.0,
+  "batch_size": 10,
+  "metrics_interval_ms": 200,
+  "tls": true,
+  "ca_file": null,
+  "transport": "websockets",
+  "ws_path": "/mqtt"
+}
+```
+
+`transport` dan `ws_path` bersifat opsional; default-nya `"tcp"` (perilaku
+lama, tanpa `ws_path`). `ws_path` harus sama persis dengan path yang
+di-reverse-proxy ke listener WebSocket Mosquitto (port `9001`). Detail dan
+contoh konfigurasi reverse proxy ada di `device/PP2_INTEGRATION.md`.
 
 `device_id` dan `mqtt_username` harus sama dengan akun yang didaftarkan pada broker.
 
