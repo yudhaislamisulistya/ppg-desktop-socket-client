@@ -4,6 +4,14 @@ const MAX_SAMPLES = 1000;
 const samples = [];
 let client = null;
 
+// Broker MQTT diakses lewat Traefik/Coolify (server terpisah dari frontend
+// ini) yang hanya membuka port 443 (WSS) ke internet. Port WebSocket
+// mentah Mosquitto (9001) tidak reachable dari luar, jadi default di sini
+// TIDAK memakai window.location.hostname/9001 (itu hanya benar kalau
+// halaman ini dan broker berada di jaringan/host yang sama).
+const DEFAULT_MQTT_HOST = "mqtt-glucometer.sivia.id";
+const DEFAULT_MQTT_WSS_PORT = "443";
+
 const elements = {
   host: document.querySelector("#host"),
   port: document.querySelector("#port"),
@@ -28,9 +36,20 @@ const elements = {
   canvas: document.querySelector("#chart"),
 };
 
-elements.host.value = window.location.hostname || "localhost";
+elements.host.value = DEFAULT_MQTT_HOST;
+elements.port.value = DEFAULT_MQTT_WSS_PORT;
 elements.connectButton.addEventListener("click", toggleConnection);
 window.addEventListener("resize", drawChart);
+
+function resolveWsProtocol(port) {
+  // 443/8883 hanya masuk akal lewat TLS (WSS lewat reverse proxy).
+  // Selain itu, ikuti protokol halaman ini sendiri (mis. ws:// untuk
+  // testing LAN langsung ke port 9001 tanpa TLS).
+  if (port === "443" || port === "8883") {
+    return "wss";
+  }
+  return window.location.protocol === "https:" ? "wss" : "ws";
+}
 
 function toggleConnection() {
   if (client) {
@@ -41,8 +60,9 @@ function toggleConnection() {
     return;
   }
 
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${protocol}://${elements.host.value}:${elements.port.value}`;
+  const port = elements.port.value.trim();
+  const protocol = resolveWsProtocol(port);
+  const url = `${protocol}://${elements.host.value}:${port}`;
   const deviceId = elements.deviceId.value.trim() || "+";
 
   const fallbackId = Math.random().toString(16).slice(2);
