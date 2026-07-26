@@ -28,8 +28,14 @@ const TOPIC_SUFFIXES = [
 
 // Ring buffer trace. Kepala tulis berjalan ke kanan lalu melompat kembali ke
 // kiri seperti sweep monitor pasien, dengan zona kosong di depan kepala.
-const TRACE_CAPACITY = 900;
+const TRACE_CAPACITY = 1000;
 const TRACE_GAP = 22;
+const TRACE_X_MIN = 0;
+const TRACE_X_MAX = 1000;
+const TRACE_Y_MIN = -200;
+const TRACE_Y_MAX = 200;
+const TRACE_X_TICKS = [0, 200, 400, 600, 800, 1000];
+const TRACE_Y_TICKS = [-200, -100, 0, 100, 200];
 const trace = new Float64Array(TRACE_CAPACITY);
 const traceFilled = new Uint8Array(TRACE_CAPACITY);
 
@@ -95,8 +101,6 @@ const state = {
   totalSamples: 0,
   totalMessages: 0,
   connectedAt: 0,
-  lo: null,
-  hi: null,
   links: new Map(),
   mode: "idle",
   measurementId: null,
@@ -385,8 +389,6 @@ function resetTrace() {
   traceFilled.fill(0);
   state.head = 0;
   state.totalSamples = 0;
-  state.lo = null;
-  state.hi = null;
   drawChart();
 }
 
@@ -403,7 +405,7 @@ function pushSamples(list) {
   }
 }
 
-function traceBounds() {
+function traceScale() {
   let min = Infinity;
   let max = -Infinity;
   for (let i = 0; i < TRACE_CAPACITY; i += 1) {
@@ -412,15 +414,8 @@ function traceBounds() {
     if (trace[i] > max) max = trace[i];
   }
   if (min === Infinity) return null;
-  if (max - min < 1) {
-    const mid = (min + max) / 2;
-    min = mid - 0.5;
-    max = mid + 0.5;
-  }
-  // Haluskan agar sumbu tidak melompat tiap batch.
-  state.lo = state.lo === null ? min : state.lo + (min - state.lo) * 0.12;
-  state.hi = state.hi === null ? max : state.hi + (max - state.hi) * 0.12;
-  return { lo: state.lo, hi: state.hi };
+  const center = (min + max) / 2;
+  return { center, radius: Math.max((max - min) / 2, 0.5) };
 }
 
 function drawChart() {
@@ -437,35 +432,69 @@ function drawChart() {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  // Graticule halus khas monitor.
-  ctx.strokeStyle = themeColor("--chart-grid");
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let i = 1; i < 4; i += 1) {
-    const y = Math.round((height / 4) * i) + 0.5;
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-  }
-  for (let i = 1; i < 10; i += 1) {
-    const x = Math.round((width / 10) * i) + 0.5;
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-  }
-  ctx.stroke();
+  const plotLeft = width < 520 ? 36 : 42;
+  const plotRight = width - 12;
+  const plotTop = 12;
+  const plotBottom = height - 24;
+  const plotWidth = Math.max(1, plotRight - plotLeft);
+  const plotHeight = Math.max(1, plotBottom - plotTop);
+  const toX = (sample) =>
+    plotLeft + ((sample - TRACE_X_MIN) / (TRACE_X_MAX - TRACE_X_MIN)) * plotWidth;
+  const toY = (amplitude) =>
+    plotBottom -
+    ((amplitude - TRACE_Y_MIN) / (TRACE_Y_MAX - TRACE_Y_MIN)) * plotHeight;
 
-  const bounds = traceBounds();
-  if (!bounds) {
+  // Graticule dan angka sumbu tetap, sama dengan tampilan desktop.
+  ctx.strokeStyle = themeColor("--chart-grid");
+  ctx.fillStyle = themeColor("--text-faint");
+  ctx.lineWidth = 1;
+  ctx.font = '10px "IBM Plex Mono", monospace';
+  ctx.textBaseline = "middle";
+
+  for (const amplitude of TRACE_Y_TICKS) {
+    const y = Math.round(toY(amplitude)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, y);
+    ctx.lineTo(plotRight, y);
+    ctx.stroke();
+    ctx.textAlign = "right";
+    ctx.fillText(String(amplitude), plotLeft - 6, y);
+  }
+
+  ctx.textBaseline = "top";
+  for (const sample of TRACE_X_TICKS) {
+    const x = Math.round(toX(sample)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, plotTop);
+    ctx.lineTo(x, plotBottom);
+    ctx.stroke();
+
+    ctx.textAlign =
+      sample === TRACE_X_MIN ? "left" : sample === TRACE_X_MAX ? "right" : "center";
+    ctx.fillText(String(sample), x, plotBottom + 5);
+  }
+
+  const scale = traceScale();
+  if (!scale) {
     ctx.fillStyle = themeColor("--chart-empty");
     ctx.font = '12px "IBM Plex Mono", monospace';
     ctx.textAlign = "center";
-    ctx.fillText("menunggu sampel dari alat", width / 2, height / 2);
+    ctx.textBaseline = "middle";
+    ctx.fillText(
+      "menunggu sampel dari alat",
+      plotLeft + plotWidth / 2,
+      plotTop + plotHeight / 2,
+    );
     return;
   }
 
-  const pad = 14;
-  const span = bounds.hi - bounds.lo || 1;
-  const toY = (value) =>
-    height - pad - ((value - bounds.lo) / span) * (height - pad * 2);
+  // ADC mentah berpusat di sekitar baseline. Normalisasi menjaga waveform
+  // tetap terbaca pada sumbu amplitudo tetap -200 sampai 200.
+  const normalize = (value) =>
+    Math.max(
+      TRACE_Y_MIN,
+      Math.min(TRACE_Y_MAX, ((value - scale.center) / scale.radius) * TRACE_Y_MAX),
+    );
 
   ctx.strokeStyle = themeColor("--ch-pleth");
   ctx.lineWidth = 1.6;
@@ -477,12 +506,12 @@ function drawChart() {
   ctx.beginPath();
   let drawing = false;
   for (let i = 0; i < TRACE_CAPACITY; i += 1) {
-    const x = (i / (TRACE_CAPACITY - 1)) * width;
+    const x = toX(i);
     if (!traceFilled[i]) {
       drawing = false;
       continue;
     }
-    const y = toY(trace[i]);
+    const y = toY(normalize(trace[i]));
     if (drawing) {
       ctx.lineTo(x, y);
     } else {
@@ -496,8 +525,8 @@ function drawChart() {
   // Kepala tulis, penanda sampel terbaru.
   const headIndex = (state.head - 1 + TRACE_CAPACITY) % TRACE_CAPACITY;
   if (traceFilled[headIndex]) {
-    const x = (headIndex / (TRACE_CAPACITY - 1)) * width;
-    const y = toY(trace[headIndex]);
+    const x = toX(headIndex);
+    const y = toY(normalize(trace[headIndex]));
     ctx.fillStyle = themeColor("--chart-head");
     ctx.shadowColor = themeColor("--chart-glow");
     ctx.shadowBlur = 11;

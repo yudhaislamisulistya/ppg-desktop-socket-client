@@ -706,9 +706,8 @@ class AnimationPlot:
 
     def getPlotFormat(self, dataList, ax):
         """Mengatur sumbu Y agar statis dengan rentang positif dan negatif"""
-        y_min = -250.0
-        y_max = 250.0
-        ax.set_ylim([y_min, y_max])
+        ax.set_ylim([-200.0, 200.0])
+        ax.set_yticks([-200, -100, 0, 100, 200])
 
     def compute_overall_means(self):
         with self.lock:
@@ -756,7 +755,8 @@ class AnimationPlot:
         ax.clear()
         app.style_axes(ax)
         self.getPlotFormat(None, ax)
-        ax.set_xlim(0, max(1, len(signal) - 1))
+        ax.set_xlim(0, 1000)
+        ax.set_xticks([0, 200, 400, 600, 800, 1000])
         ax.plot(signal, color=THEME["ch_pleth"], linewidth=1.3, solid_joinstyle="round")
 
         min_rr_ms = 400.0
