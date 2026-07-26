@@ -57,13 +57,14 @@ ppg-desktop-socket-client/
 
 - Linux/VPS atau komputer yang memiliki Docker.
 - Docker Compose v2 (`docker compose`).
-- Port `1883`, `9001`, dan `9100` tersedia.
+- Port `1883`, `9001`, `9100`, dan `55432` tersedia.
 
 Untuk uji LAN:
 
 - `1883`: MQTT Raspberry Pi.
 - `9001`: MQTT over WebSocket untuk browser.
 - `9100`: halaman frontend.
+- `55432`: PostgreSQL untuk koneksi langsung dari DBeaver.
 
 Jangan membuka port `1883` dan `9001` tanpa TLS ke internet publik untuk penggunaan produksi.
 
@@ -85,12 +86,13 @@ STORAGE_PASSWORD=password-storage-yang-kuat
 POSTGRES_DB=ppg
 POSTGRES_USER=ppg
 POSTGRES_PASSWORD=password-database-yang-kuat
+POSTGRES_HOST_PORT=55432
 TZ=Asia/Jakarta
 ```
 
 Password storage harus sama dengan akun `storage` pada broker. Script berikut akan membuatnya dari `.env`.
-Password PostgreSQL hanya dipakai di jaringan internal Compose dan tidak perlu
-sama dengan password MQTT.
+Password PostgreSQL tidak perlu sama dengan password MQTT. Gunakan password
+acak yang kuat karena PostgreSQL dapat diakses dari jaringan luar.
 
 `COMPOSE_PROJECT_NAME` menjadi prefix container. Dengan nilai default, nama
 container akan terlihat seperti:
@@ -105,10 +107,10 @@ ppg-mqtt-system-frontend-1
 `FRONTEND_PORT` adalah port pada host dan dapat diganti jika `9100` juga sudah
 digunakan. Port di dalam container tetap `80`.
 
-PostgreSQL tidak mempublikasikan port `5432` ke host. Service hanya dapat
-diakses sebagai `postgres:5432` di network Compose dengan volume
-`ppg-mqtt-system_postgres-data`, sehingga tidak bentrok dengan PostgreSQL lain
-di server.
+PostgreSQL memakai port internal `5432`, tetapi dipublikasikan pada port host
+`POSTGRES_HOST_PORT` (default `55432`). Pemisahan ini mencegah bentrok dengan
+PostgreSQL lain yang sudah memakai port host `5432`. Data tetap berada pada
+volume khusus `ppg-mqtt-system_postgres-data`.
 
 ## 3. Buat akun storage dan dashboard
 
@@ -487,6 +489,20 @@ tidak subscribe topic `metrics` atau `status`; preview live tetap hanya lewat
 MQTT menuju frontend.
 
 ## 11. Lihat dan ekspor data
+
+Koneksi langsung DBeaver untuk deployment server:
+
+```text
+Host     : 202.141.15.3
+Port     : 55432
+Database : ppg
+Username : nilai POSTGRES_USER di .env
+Password : nilai POSTGRES_PASSWORD di .env
+```
+
+Pastikan firewall server atau provider mengizinkan TCP `55432`. Koneksi
+langsung ini tidak memakai SSH tunnel; batasi sumber IP melalui firewall jika
+database hanya akan dipakai dari jaringan tertentu.
 
 Daftar measurement:
 
