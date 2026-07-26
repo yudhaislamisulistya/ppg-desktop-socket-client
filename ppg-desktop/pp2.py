@@ -730,6 +730,7 @@ class ArduinoPlotApp:
         self.latest_voltage = None
         self.latest_adc = None
         self.metrics_after_id = None
+        self.mqtt_connect_after_id = None
 
         # Antropometri
         self.last_age = None
@@ -1130,6 +1131,12 @@ class ArduinoPlotApp:
 
         def update():
             self._mqtt_state = labels.get(status, (status, THEME["text_dim"]))
+            if status == "connected" and self.mqtt_connect_after_id is not None:
+                try:
+                    self.root.after_cancel(self.mqtt_connect_after_id)
+                except tk.TclError:
+                    pass
+                self.mqtt_connect_after_id = None
             self._render_lamps()
 
         try:
@@ -1204,11 +1211,20 @@ class ArduinoPlotApp:
             return
 
         try:
-            self.ser = serial.Serial(port_name, SERIAL_BAUD, timeout=0.1)
+            serial_connection = serial.Serial(port_name, SERIAL_BAUD, timeout=0.1)
+            self.ser = serial_connection
             self.running = True
             self.mqtt.connect()
-            self.serial_thread = threading.Thread(target=self.serial_reader, daemon=True)
+            self.serial_thread = threading.Thread(
+                target=self.serial_reader,
+                args=(serial_connection,),
+                daemon=True,
+            )
             self.serial_thread.start()
+            self.mqtt_connect_after_id = self.root.after(
+                10000,
+                self.mqtt_connection_timeout,
+            )
             self.set_serial_state("terhubung", THEME["ok"])
         except serial.SerialException as e:
             messagebox.showerror("Serial Error", f"Gagal membuka port {port_name}:\n{e}")
@@ -1216,31 +1232,78 @@ class ArduinoPlotApp:
             self.running = False
             self.ser = None
         except Exception as error:
-            self.running = False
-            try:
-                if self.ser and self.ser.is_open:
-                    self.ser.close()
-            except Exception:
-                pass
-            self.ser = None
+            self.stop_serial()
             messagebox.showerror("MQTT Error", f"Gagal memulai MQTT:\n{error}")
             self.set_serial_state("gagal", THEME["rec"])
 
+    def mqtt_connection_timeout(self):
+        self.mqtt_connect_after_id = None
+        if not self.running or self.mqtt.connected:
+            return
+        self.stop_serial()
+        messagebox.showerror(
+            "MQTT Tidak Terhubung",
+            "Serial berhasil dibuka, tetapi MQTT tidak terhubung dalam 10 detik.\n\n"
+            f"Periksa konfigurasi {MQTT_CONFIG}, koneksi internet, Device ID, "
+            "username, dan password MQTT.",
+        )
+
     def stop_serial(self):
         self.running = False
+        if self.mqtt_connect_after_id is not None:
+            try:
+                self.root.after_cancel(self.mqtt_connect_after_id)
+            except tk.TclError:
+                pass
+            self.mqtt_connect_after_id = None
+
+        if self.countdown_after_id is not None:
+            try:
+                self.root.after_cancel(self.countdown_after_id)
+            except tk.TclError:
+                pass
+            self.countdown_after_id = None
+        self.logging_active = False
+        self.measurement_in_progress = False
+        self.enable_submit_button()
+        if self._is_window_valid(self.averages_window):
+            try:
+                self.averages_window.destroy()
+            except tk.TclError:
+                pass
+        self.averages_window = None
+        self.countdown_label = None
+        self.countdown_bar = None
+        self.avg_si_label = None
+        self.avg_hrv_label = None
+        self.avg_mfcc_label = None
+        self.avg_vol_label = None
+        self.avg_adc_label = None
+
+        serial_connection = self.ser
+        self.ser = None
         try:
-            if self.ser and self.ser.is_open:
-                self.ser.close()
+            if serial_connection and serial_connection.is_open:
+                serial_connection.close()
         except Exception:
             pass
-        self.ser = None
+
+        serial_thread = self.serial_thread
+        if serial_thread and serial_thread is not threading.current_thread():
+            serial_thread.join(timeout=1)
+        self.serial_thread = None
+
         self.mqtt.disconnect()
         self.set_serial_state("mati", THEME["text_faint"])
 
-    def serial_reader(self):
-        while self.running and self.ser and self.ser.is_open:
+    def serial_reader(self, serial_connection):
+        while (
+            self.running
+            and self.ser is serial_connection
+            and serial_connection.is_open
+        ):
             try:
-                line = self.ser.readline().decode("ascii").strip()
+                line = serial_connection.readline().decode("ascii").strip()
                 if not line:
                     continue
                 value = float(line)
@@ -1252,12 +1315,27 @@ class ArduinoPlotApp:
             except ValueError:
                 continue
             except serial.SerialException as e:
-                print("Serial error:", e)
+                if self.running and self.ser is serial_connection:
+                    print("Serial error:", e)
                 break
             except Exception as e:
                 print("Unexpected error:", e)
                 break
+
+        # Thread lama tidak boleh membersihkan sesi baru yang sudah memakai
+        # objek serial berbeda setelah Stop -> Start.
+        if self.ser is not serial_connection:
+            return
+
         self.running = False
+        self.ser = None
+        if self.serial_thread is threading.current_thread():
+            self.serial_thread = None
+        try:
+            if serial_connection.is_open:
+                serial_connection.close()
+        except Exception:
+            pass
         self.mqtt.disconnect()
         try:
             self.root.after(0, lambda: self.set_serial_state("mati", THEME["text_faint"]))

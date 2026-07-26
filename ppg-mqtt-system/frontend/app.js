@@ -149,6 +149,7 @@ function setDeviceLamp(deviceState) {
   const map = {
     online: ["daring", "on"],
     offline: ["luring", "bad"],
+    waiting: ["menunggu data", "wait"],
     unknown: ["belum diketahui", "unknown"],
   };
   const [text, level] = map[deviceState] || map.unknown;
@@ -179,7 +180,7 @@ function setMode(mode, measurementId) {
   ui.sessionId.textContent = measurementId || "—";
 
   const labels = {
-    idle: "Menunggu alat",
+    idle: "Menunggu data",
     live: "Live preview",
     recording: "Merekam",
     completed: "Selesai",
@@ -570,6 +571,7 @@ function disconnect() {
   state.totalMessages = 0;
   renderLinks();
   ui.linkMeta.textContent = "belum terhubung";
+  ui.chipDevice.textContent = "—";
   ui.connectButton.textContent = "Hubungkan";
   ui.connectButton.dataset.active = "false";
   ui.connection.hidden = false;
@@ -608,6 +610,8 @@ function connect() {
 
   resetTrace();
   resetLinks(deviceId);
+  ui.chipDevice.textContent = deviceId;
+  setDeviceLamp("waiting");
   setBroker("menghubungkan…", "wait");
   ui.connectButton.textContent = "Putuskan";
   ui.connectButton.dataset.active = "true";
@@ -629,6 +633,7 @@ function connect() {
 
   client.on("connect", () => {
     setBroker("terhubung", "on");
+    setDeviceLamp("waiting");
     state.connectedAt = Date.now();
     ui.connection.hidden = true;
     ui.panelToggle.setAttribute("aria-expanded", "false");
@@ -716,8 +721,8 @@ function tick() {
       showAlert(
         "nodata",
         "warn",
-        "Terhubung, tetapi belum ada data",
-        `Broker menerima koneksi dan seluruh langganan diizinkan. Periksa: Device ID "${ui.deviceId.value.trim()}" sama persis dengan device_id alat (huruf besar/kecil berpengaruh), alat menyala, dan tombol Start di pp2.py sudah ditekan.`,
+        "Terhubung, tetapi alat belum mengirim data",
+        `Frontend siap memantau "${ui.deviceId.value.trim()}", tetapi belum ada publish. Pastikan lampu MQTT pada pp2.py berstatus terhubung (bukan menghubungkan/ditolak), lalu periksa Device ID dan mqtt_config.json pada alat.`,
       );
     }
   }

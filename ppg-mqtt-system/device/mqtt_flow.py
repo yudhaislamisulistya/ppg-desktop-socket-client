@@ -105,6 +105,7 @@ class PpgMqttFlow:
         self.client.username_pw_set(mqtt_username, mqtt_password)
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         self.client.on_connect = self._on_connect
+        self.client.on_connect_fail = self._on_connect_fail
         self.client.on_disconnect = self._on_disconnect
 
         if transport == "websockets":
@@ -166,6 +167,7 @@ class PpgMqttFlow:
             if self._network_started:
                 return
             self._network_started = True
+            self._connected.clear()
 
         self._notify_status("connecting")
         try:
@@ -437,6 +439,15 @@ class PpgMqttFlow:
             self._notify_status("reconnecting")
         else:
             self._notify_status("disconnected")
+
+    def _on_connect_fail(self, client: mqtt.Client, userdata: Any) -> None:
+        if self._network_started:
+            LOGGER.warning(
+                "MQTT belum dapat terhubung ke %s:%s",
+                self._mqtt_host,
+                self._mqtt_port,
+            )
+            self._notify_status("reconnecting")
 
     def _topic(self, suffix: str) -> str:
         return f"ppg/{self.device_id}/{suffix}"
