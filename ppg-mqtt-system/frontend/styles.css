@@ -625,11 +625,42 @@ summary:focus-visible {
   font-size: 11px;
 }
 
+.chart-frame {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-rows: auto 18px;
+  column-gap: 7px;
+  margin-top: 14px;
+}
+
+.chart-axis {
+  align-self: center;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.chart-axis-y {
+  grid-row: 1;
+  grid-column: 1;
+  justify-self: center;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.chart-axis-x {
+  grid-row: 2;
+  grid-column: 2;
+  justify-self: center;
+}
+
 #chart {
+  grid-row: 1;
+  grid-column: 2;
   display: block;
   width: 100%;
   height: 320px;
-  margin-top: 14px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: var(--plot-bg);

@@ -20,6 +20,21 @@ class FrontendUiContractTest(unittest.TestCase):
         self.assertIn("function renderMfccDetails(", javascript)
         self.assertIn('value.toFixed(6)', javascript)
 
+    def test_waveform_has_accessible_axis_labels(self):
+        html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+        css = (FRONTEND / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="chart-x-label"', html)
+        self.assertIn("Samples", html)
+        self.assertIn('id="chart-y-label"', html)
+        self.assertIn("Amplitude", html)
+        self.assertIn(
+            'aria-describedby="chart-x-label chart-y-label"',
+            html,
+        )
+        self.assertIn(".chart-frame", css)
+        self.assertIn("writing-mode: vertical-rl", css)
+
 
 if __name__ == "__main__":
     unittest.main()

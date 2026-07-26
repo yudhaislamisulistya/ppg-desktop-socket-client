@@ -106,7 +106,19 @@
               <span id="sample-count">0 sampel</span>
             </div>
           </div>
-          <canvas id="chart" role="img" aria-label="Grafik waveform PPG realtime"></canvas>
+          <div class="chart-frame">
+            <span class="chart-axis chart-axis-y" id="chart-y-label">
+              Amplitude
+            </span>
+            <canvas
+              id="chart"
+              role="img"
+              aria-label="Grafik waveform PPG realtime"
+              aria-describedby="chart-x-label chart-y-label"></canvas>
+            <span class="chart-axis chart-axis-x" id="chart-x-label">
+              Samples
+            </span>
+          </div>
         </section>
 
         <section class="panel mfcc-panel">
