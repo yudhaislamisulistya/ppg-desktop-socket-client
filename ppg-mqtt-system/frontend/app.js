@@ -1,4 +1,4 @@
-/* global mqtt */
+/* global mqtt, normalizeWaveform */
 
 /* ==========================================================================
    PPG Monitor — dashboard realtime.
@@ -26,18 +26,15 @@ const TOPIC_SUFFIXES = [
   "measurement/result",
 ];
 
-// Ring buffer trace. Kepala tulis berjalan ke kanan lalu melompat kembali ke
-// kiri seperti sweep monitor pasien, dengan zona kosong di depan kepala.
+// Simpan 1000 sampel terakhir, sama seperti jendela grafik desktop.
 const TRACE_CAPACITY = 1000;
-const TRACE_GAP = 22;
 const TRACE_X_MIN = 0;
 const TRACE_X_MAX = 1000;
 const TRACE_Y_MIN = -200;
 const TRACE_Y_MAX = 200;
 const TRACE_X_TICKS = [0, 200, 400, 600, 800, 1000];
 const TRACE_Y_TICKS = [-200, -100, 0, 100, 200];
-const trace = new Float64Array(TRACE_CAPACITY);
-const traceFilled = new Uint8Array(TRACE_CAPACITY);
+const trace = [];
 
 const VITALS = [
   { id: "si", key: "SI", unit: "m/s", channel: "--ch-si", digits: 4 },
@@ -97,7 +94,6 @@ const ui = {
 
 const state = {
   client: null,
-  head: 0,
   totalSamples: 0,
   totalMessages: 0,
   connectedAt: 0,
@@ -386,8 +382,7 @@ function noteMessage(suffix) {
 /* ---------- Trace -------------------------------------------------------- */
 
 function resetTrace() {
-  traceFilled.fill(0);
-  state.head = 0;
+  trace.length = 0;
   state.totalSamples = 0;
   drawChart();
 }
@@ -396,26 +391,12 @@ function pushSamples(list) {
   for (const raw of list) {
     const value = Number(raw);
     if (!Number.isFinite(value)) continue;
-    trace[state.head] = value;
-    traceFilled[state.head] = 1;
-    state.head = (state.head + 1) % TRACE_CAPACITY;
-    // Kosongkan sel di depan kepala supaya terbentuk celah sapuan.
-    traceFilled[(state.head + TRACE_GAP) % TRACE_CAPACITY] = 0;
+    trace.push(value);
     state.totalSamples += 1;
   }
-}
-
-function traceScale() {
-  let min = Infinity;
-  let max = -Infinity;
-  for (let i = 0; i < TRACE_CAPACITY; i += 1) {
-    if (!traceFilled[i]) continue;
-    if (trace[i] < min) min = trace[i];
-    if (trace[i] > max) max = trace[i];
+  if (trace.length > TRACE_CAPACITY) {
+    trace.splice(0, trace.length - TRACE_CAPACITY);
   }
-  if (min === Infinity) return null;
-  const center = (min + max) / 2;
-  return { center, radius: Math.max((max - min) / 2, 0.5) };
 }
 
 function drawChart() {
@@ -474,8 +455,8 @@ function drawChart() {
     ctx.fillText(String(sample), x, plotBottom + 5);
   }
 
-  const scale = traceScale();
-  if (!scale) {
+  const signal = normalizeWaveform(trace);
+  if (signal.length === 0) {
     ctx.fillStyle = themeColor("--chart-empty");
     ctx.font = '12px "IBM Plex Mono", monospace';
     ctx.textAlign = "center";
@@ -488,14 +469,6 @@ function drawChart() {
     return;
   }
 
-  // ADC mentah berpusat di sekitar baseline. Normalisasi menjaga waveform
-  // tetap terbaca pada sumbu amplitudo tetap -200 sampai 200.
-  const normalize = (value) =>
-    Math.max(
-      TRACE_Y_MIN,
-      Math.min(TRACE_Y_MAX, ((value - scale.center) / scale.radius) * TRACE_Y_MAX),
-    );
-
   ctx.strokeStyle = themeColor("--ch-pleth");
   ctx.lineWidth = 1.6;
   ctx.lineJoin = "round";
@@ -504,37 +477,26 @@ function drawChart() {
   ctx.shadowBlur = 7;
 
   ctx.beginPath();
-  let drawing = false;
-  for (let i = 0; i < TRACE_CAPACITY; i += 1) {
+  for (let i = 0; i < signal.length; i += 1) {
     const x = toX(i);
-    if (!traceFilled[i]) {
-      drawing = false;
-      continue;
-    }
-    const y = toY(normalize(trace[i]));
-    if (drawing) {
-      ctx.lineTo(x, y);
-    } else {
-      ctx.moveTo(x, y);
-      drawing = true;
-    }
+    const y = toY(signal[i]);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
   }
   ctx.stroke();
   ctx.shadowBlur = 0;
 
   // Kepala tulis, penanda sampel terbaru.
-  const headIndex = (state.head - 1 + TRACE_CAPACITY) % TRACE_CAPACITY;
-  if (traceFilled[headIndex]) {
-    const x = toX(headIndex);
-    const y = toY(normalize(trace[headIndex]));
-    ctx.fillStyle = themeColor("--chart-head");
-    ctx.shadowColor = themeColor("--chart-glow");
-    ctx.shadowBlur = 11;
-    ctx.beginPath();
-    ctx.arc(x, y, 2.6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-  }
+  const headIndex = signal.length - 1;
+  const x = toX(headIndex);
+  const y = toY(signal[headIndex]);
+  ctx.fillStyle = themeColor("--chart-head");
+  ctx.shadowColor = themeColor("--chart-glow");
+  ctx.shadowBlur = 11;
+  ctx.beginPath();
+  ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
 }
 
 /* ---------- Hasil -------------------------------------------------------- */
