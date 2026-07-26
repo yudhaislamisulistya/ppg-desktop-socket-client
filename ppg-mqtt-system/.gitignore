@@ -5,5 +5,6 @@ __pycache__/
 *.sqlite3-shm
 *.sqlite3-wal
 mosquitto/config/passwords
+mosquitto/config/acl.bak
 device/config.json
 exports/
