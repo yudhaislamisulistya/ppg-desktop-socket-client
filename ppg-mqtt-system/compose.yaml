@@ -1,6 +1,27 @@
 name: ${COMPOSE_PROJECT_NAME:-ppg-mqtt-system}
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ppg}
+      POSTGRES_USER: ${POSTGRES_USER:-ppg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD wajib diisi di .env}
+      TZ: ${TZ:-Asia/Jakarta}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   mosquitto:
     image: eclipse-mosquitto:2.1.2-alpine
     restart: unless-stopped
@@ -23,15 +44,19 @@ services:
     depends_on:
       mosquitto:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
       MQTT_USERNAME: storage
       MQTT_PASSWORD: ${STORAGE_PASSWORD}
-      SQLITE_PATH: ${SQLITE_PATH:-/data/ppg.sqlite3}
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB:-ppg}
+      PGUSER: ${POSTGRES_USER:-ppg}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
       TZ: ${TZ:-Asia/Jakarta}
-    volumes:
-      - ./data:/data
 
   frontend:
     image: nginx:alpine
@@ -43,3 +68,4 @@ services:
 
 volumes:
   mosquitto-data:
+  postgres-data:

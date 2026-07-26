@@ -9,7 +9,7 @@ Raspberry Pi / pp2.py
         ▼
 Eclipse Mosquitto
         ├── WebSocket port 9001 ──► Frontend realtime
-        └── MQTT subscribe ───────► Storage SQLite
+        └── MQTT subscribe ───────► Storage ─────► PostgreSQL
 ```
 
 Tidak ada backend REST pada versi ini. Frontend menerima waveform dan snapshot SI, HRV, BMI, Age, MFCC, Voltage, serta ADC langsung dari broker. Service `storage` hanya menyimpan raw recording dan hasil akhir setelah tombol `Submit` membuat `measurement_id`.
@@ -20,7 +20,7 @@ Dokumentasi handoff untuk tim frontend tersedia di [FRONTEND_INTEGRATION.md](FRO
 
 ## Perilaku tombol
 
-| Kondisi | MQTT realtime | Disimpan SQLite |
+| Kondisi | MQTT realtime | Disimpan PostgreSQL |
 |---|---:|---:|
 | Belum menekan Start | Tidak | Tidak |
 | Start ditekan | Ya, `mode=live` | Tidak |
@@ -41,7 +41,6 @@ ppg-desktop-socket-client/
     ├── compose.yaml
     ├── .env.example
     ├── FRONTEND_INTEGRATION.md
-    ├── data/
     ├── mosquitto/config/
     ├── scripts/
     ├── device/
@@ -83,23 +82,33 @@ Edit `.env`:
 COMPOSE_PROJECT_NAME=ppg-mqtt-system
 FRONTEND_PORT=9100
 STORAGE_PASSWORD=password-storage-yang-kuat
-SQLITE_PATH=/data/ppg.sqlite3
+POSTGRES_DB=ppg
+POSTGRES_USER=ppg
+POSTGRES_PASSWORD=password-database-yang-kuat
 TZ=Asia/Jakarta
 ```
 
 Password storage harus sama dengan akun `storage` pada broker. Script berikut akan membuatnya dari `.env`.
+Password PostgreSQL hanya dipakai di jaringan internal Compose dan tidak perlu
+sama dengan password MQTT.
 
 `COMPOSE_PROJECT_NAME` menjadi prefix container. Dengan nilai default, nama
 container akan terlihat seperti:
 
 ```text
 ppg-mqtt-system-mosquitto-1
+ppg-mqtt-system-postgres-1
 ppg-mqtt-system-storage-1
 ppg-mqtt-system-frontend-1
 ```
 
 `FRONTEND_PORT` adalah port pada host dan dapat diganti jika `9100` juga sudah
 digunakan. Port di dalam container tetap `80`.
+
+PostgreSQL tidak mempublikasikan port `5432` ke host. Service hanya dapat
+diakses sebagai `postgres:5432` di network Compose dengan volume
+`ppg-mqtt-system_postgres-data`, sehingga tidak bentrok dengan PostgreSQL lain
+di server.
 
 ## 3. Buat akun storage dan dashboard
 
@@ -173,7 +182,7 @@ docker compose restart mosquitto
 chmod +x scripts/*.sh
 docker compose up -d --build
 docker compose ps
-docker compose logs -f mosquitto storage
+docker compose logs -f postgres mosquitto storage
 ```
 
 Validasi seluruh service:
@@ -300,7 +309,7 @@ python /path/ke/pp2.py
 Simulator menjalankan:
 
 1. Live preview selama 5 detik.
-2. Recording selama 10 detik.
+2. Recording selama 300 detik.
 3. Mengirim waveform dan metrik realtime.
 4. Mengirim result.
 5. Disconnect.
@@ -317,8 +326,8 @@ broker.
 Saat simulator berjalan:
 
 - Frontend menampilkan waveform.
-- Lima detik pertama tidak masuk SQLite.
-- Data setelah sesi dimulai masuk SQLite.
+- Lima detik pertama tidak masuk PostgreSQL.
+- Data setelah sesi 300 detik dimulai masuk PostgreSQL.
 - Hasil akhir tersimpan sebagai `completed`.
 
 ## 8. Integrasi MQTT yang sudah ada di `pp2.py`
@@ -465,28 +474,25 @@ Payload:
 }
 ```
 
-## 10. Struktur SQLite
-
-Database berada di:
-
-```text
-data/ppg.sqlite3
-```
+## 10. Struktur PostgreSQL
 
 Tabel:
 
-- `devices`: status online/offline terakhir.
-- `measurements`: satu baris untuk satu kali Submit.
-- `raw_batches`: batch ADC milik measurement.
+- `measurements`: satu baris untuk satu kali Submit berdurasi 300 detik.
+- `measurement_raw_batches`: batch ADC milik measurement tersebut.
 
-Kunci utama `raw_batches` adalah `(measurement_id, sequence)`. Jika pesan QoS 1 diterima dua kali, duplikat tidak disimpan.
+Kunci utama `measurement_raw_batches` adalah `(measurement_id, sequence)`.
+Jika pesan QoS 1 diterima dua kali, duplikat tidak disimpan. Service storage
+tidak subscribe topic `metrics` atau `status`; preview live tetap hanya lewat
+MQTT menuju frontend.
 
 ## 11. Lihat dan ekspor data
 
 Daftar measurement:
 
 ```bash
-python3 tools/list_measurements.py
+DATABASE_URL='postgresql://ppg:PASSWORD@HOST:5432/ppg' \
+  python3 tools/list_measurements.py
 ```
 
 Contoh output:
@@ -499,7 +505,15 @@ ID    DEVICE          PATIENT  STARTED                    STATUS     SAMPLES
 Ekspor raw satu measurement menjadi CSV:
 
 ```bash
-python3 tools/export_measurement.py MEASUREMENT_ID --output hasil.csv
+DATABASE_URL='postgresql://ppg:PASSWORD@HOST:5432/ppg' \
+  python3 tools/export_measurement.py MEASUREMENT_ID --output hasil.csv
+```
+
+Di server, pemeriksaan tanpa membuka port PostgreSQL dapat dilakukan langsung:
+
+```bash
+docker compose exec postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT id, device_id, patient_name, status, raw_sample_count FROM measurements ORDER BY started_at DESC LIMIT 10;"'
 ```
 
 ## 12. Test lokal
@@ -507,6 +521,8 @@ python3 tools/export_measurement.py MEASUREMENT_ID --output hasil.csv
 Test database:
 
 ```bash
+pip install -r storage/requirements.txt
+TEST_DATABASE_URL='postgresql://ppg:PASSWORD@HOST:5432/ppg_test' \
 python3 -m unittest discover -s tests -v
 ```
 
@@ -525,7 +541,7 @@ Jika `1883` atau `9001` menghasilkan `Connection refused`:
 
 ```bash
 docker compose ps -a
-docker compose logs --tail=200 mosquitto
+docker compose logs --tail=200 postgres mosquitto storage
 sudo ss -lntp | grep -E ':(1883|9001|9100)\b'
 ```
 

@@ -223,5 +223,5 @@ Serial: connected | MQTT: connected
 ## Penyimpanan
 
 - Raw live dan snapshot `metrics` tidak disimpan.
-- Setelah Submit, raw dengan `measurement_id` disimpan ke SQLite.
+- Setelah Submit, raw dengan `measurement_id` disimpan ke PostgreSQL.
 - Hasil rata-rata disimpan saat event `measurement/result`.

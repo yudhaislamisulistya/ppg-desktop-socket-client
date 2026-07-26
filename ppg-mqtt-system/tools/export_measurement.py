@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
+import os
 import sys
 from pathlib import Path
 
@@ -18,12 +18,16 @@ from database import StorageDatabase  # noqa: E402
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("measurement_id")
-    parser.add_argument("--db", default=ROOT / "data" / "ppg.sqlite3")
+    parser.add_argument(
+        "--database-url",
+        default=os.getenv("DATABASE_URL"),
+        help="PostgreSQL DSN; default memakai DATABASE_URL atau PG*.",
+    )
     parser.add_argument("--output")
     args = parser.parse_args()
 
     output = Path(args.output or f"{args.measurement_id}.csv")
-    database = StorageDatabase(args.db)
+    database = StorageDatabase(args.database_url)
     try:
         measurement = database.get_measurement(args.measurement_id)
         if measurement is None:
@@ -36,7 +40,7 @@ def main() -> None:
                 [
                     "measurement_id",
                     "device_id",
-                    "patient_code",
+                    "patient_name",
                     "batch_sequence",
                     "captured_at",
                     "sample_index",
@@ -45,12 +49,12 @@ def main() -> None:
                 ]
             )
             for batch in batches:
-                for index, adc in enumerate(json.loads(batch["samples_json"])):
+                for index, adc in enumerate(batch["samples"]):
                     writer.writerow(
                         [
                             measurement["id"],
                             measurement["device_id"],
-                            measurement["patient_code"] or "",
+                            measurement["patient_name"] or "",
                             batch["sequence"],
                             batch["captured_at"],
                             index,

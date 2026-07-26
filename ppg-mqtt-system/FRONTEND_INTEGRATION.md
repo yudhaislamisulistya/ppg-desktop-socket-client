@@ -2,7 +2,7 @@
 
 Dokumen ini adalah kontrak integrasi antara sistem alat PPG dan aplikasi frontend.
 
-Tim frontend tidak perlu memahami serial Arduino, Raspberry Pi, pengolahan sinyal, Mosquitto internal, atau SQLite. Frontend cukup terhubung ke MQTT broker melalui WebSocket, subscribe ke topic perangkat, lalu memproses payload JSON.
+Tim frontend tidak perlu memahami serial Arduino, Raspberry Pi, pengolahan sinyal, Mosquitto internal, atau PostgreSQL. Frontend cukup terhubung ke MQTT broker melalui WebSocket, subscribe ke topic perangkat, lalu memproses payload JSON.
 
 Untuk implementasi pertama, fokus pada bagian berikut:
 
@@ -23,7 +23,7 @@ Raspberry Pi / aplikasi PPG
    ▼
 Mosquitto Broker
    ├── MQTT over WebSocket ──► Frontend realtime
-   └── MQTT subscriber ──────► SQLite storage
+   └── MQTT subscriber ──────► PostgreSQL storage
 ```
 
 Pada versi saat ini:
@@ -32,7 +32,7 @@ Pada versi saat ini:
 - Frontend tidak membutuhkan backend REST untuk realtime.
 - Frontend menggunakan akun MQTT read-only.
 - Frontend tidak boleh publish atau mengirim command ke alat.
-- Histori SQLite belum tersedia melalui API frontend.
+- Histori PostgreSQL belum tersedia melalui API frontend.
 
 ## 2. Informasi yang diberikan tim IoT
 
@@ -306,7 +306,7 @@ Aturan frontend:
 - Field dapat `null` ketika algoritma belum memperoleh nilai yang valid.
 - Sebelum Submit, BMI, Age, dan SI bernilai `null`.
 - Setelah Submit, semua field mengikuti hasil terbaru yang tersedia dari alat.
-- Snapshot ini tidak disimpan satu per satu ke SQLite.
+- Snapshot ini tidak disimpan satu per satu ke PostgreSQL.
 
 ### 6.4 Measurement start
 
@@ -784,7 +784,7 @@ Jika frontend terputus lalu tersambung kembali:
 3. Frontend menerima status retained.
 4. Payload raw atau metrics berikutnya menentukan apakah alat live atau recording.
 
-Hasil pengukuran yang sudah lewat tidak dapat diminta melalui MQTT realtime. Jika frontend membutuhkan histori, diperlukan REST API tambahan di atas SQLite.
+Hasil pengukuran yang sudah lewat tidak dapat diminta melalui MQTT realtime. Jika frontend membutuhkan histori, diperlukan REST API tambahan di atas PostgreSQL.
 
 ## 12. Rekomendasi state UI
 
@@ -988,7 +988,7 @@ Sudah tersedia:
 - Event mulai measurement.
 - Event hasil measurement.
 - Monitoring empat alat.
-- Penyimpanan server-side melalui subscriber SQLite.
+- Penyimpanan server-side melalui subscriber PostgreSQL.
 
 Belum tersedia untuk frontend:
 

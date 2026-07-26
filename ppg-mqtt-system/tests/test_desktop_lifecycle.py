@@ -134,6 +134,18 @@ class DesktopLifecycleTest(unittest.TestCase):
         self.assertEqual(published[0]["patient_code"], "Siti Aminah")
         self.assertEqual(app.last_patient_name, "Siti Aminah")
 
+    def test_mqtt_flow_rejects_non_300_second_measurement(self):
+        flow = PP2.PpgMqttFlow.__new__(PP2.PpgMqttFlow)
+        with self.assertRaisesRegex(ValueError, "300 detik"):
+            flow.begin_measurement(
+                patient_code="Siti Aminah",
+                age=42,
+                height_cm=160,
+                weight_kg=55,
+                bmi=21.48,
+                duration_seconds=60,
+            )
+
     def test_mqtt_timeout_stops_silent_serial_session(self):
         app = PP2.ArduinoPlotApp.__new__(PP2.ArduinoPlotApp)
         app.running = True

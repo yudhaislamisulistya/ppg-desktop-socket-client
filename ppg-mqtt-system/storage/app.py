@@ -26,10 +26,10 @@ MQTT_HOST = os.getenv("MQTT_HOST", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "storage")
 MQTT_PASSWORD = os.environ["MQTT_PASSWORD"]
-SQLITE_PATH = os.getenv("SQLITE_PATH", "/data/ppg.sqlite3")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 stop_event = threading.Event()
-database = StorageDatabase(SQLITE_PATH)
+database = StorageDatabase(DATABASE_URL)
 
 
 def utc_now() -> str:
@@ -59,10 +59,11 @@ def on_connect(
             ("ppg/+/raw", 1),
             ("ppg/+/measurement/start", 1),
             ("ppg/+/measurement/result", 1),
-            ("ppg/+/status", 1),
         ]
     )
-    LOGGER.info("Terhubung ke MQTT dan mulai menyimpan data pengukuran.")
+    LOGGER.info(
+        "Terhubung ke MQTT; hanya sesi Submit berdurasi 300 detik yang disimpan."
+    )
 
 
 def on_message(client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage) -> None:
@@ -74,14 +75,7 @@ def on_message(client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage) ->
         if payload_device_id and payload_device_id != device_id:
             raise ValueError("device_id payload berbeda dengan topic")
 
-        if event == "status":
-            database.update_device_status(
-                device_id=device_id,
-                state=str(payload.get("state", "unknown")),
-                timestamp=str(payload.get("timestamp", received_at)),
-                received_at=received_at,
-            )
-        elif event == "measurement/start":
+        if event == "measurement/start":
             database.start_measurement(
                 device_id=device_id,
                 payload=payload,

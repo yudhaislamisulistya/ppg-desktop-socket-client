@@ -255,6 +255,8 @@ class PpgMqttFlow:
         duration_seconds: int = 300,
     ) -> str:
         """Dipanggil setelah input Submit dinyatakan valid."""
+        if int(duration_seconds) != 300:
+            raise ValueError("durasi pengukuran wajib 300 detik")
         if not self.connected:
             raise RuntimeError("MQTT belum terhubung; tekan Start dan tunggu koneksi.")
 

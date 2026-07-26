@@ -16,8 +16,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.json")
     parser.add_argument("--preview-seconds", type=int, default=5)
-    parser.add_argument("--record-seconds", type=int, default=10)
+    parser.add_argument("--record-seconds", type=int, default=300)
     args = parser.parse_args()
+    if args.record_seconds != 300:
+        raise SystemExit("Storage hanya menerima recording 300 detik.")
 
     logging.basicConfig(level=logging.INFO)
     flow = PpgMqttFlow.from_config(load_config(args.config), print)
