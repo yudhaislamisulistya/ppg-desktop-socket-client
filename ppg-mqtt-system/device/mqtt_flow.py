@@ -364,7 +364,11 @@ class PpgMqttFlow:
             self._network_started = False
 
         self.client.disconnect()
-        self.client.loop_stop()
+        threading.Thread(
+            target=self.client.loop_stop,
+            name=f"mqtt-stop-{self.device_id}",
+            daemon=True,
+        ).start()
         self._connected.clear()
         self._notify_status("disconnected")
 

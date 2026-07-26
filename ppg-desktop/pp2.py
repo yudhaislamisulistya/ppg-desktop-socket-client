@@ -944,6 +944,8 @@ class ArduinoPlotApp:
         self.running = False
         self.ser = None
         self.serial_thread = None
+        self.mqtt_cleanup_thread = None
+        self.start_after_stop = False
         self.dataList = []
         self.data_lock = threading.Lock()
 
@@ -1006,10 +1008,7 @@ class ArduinoPlotApp:
         self._build_body()
 
         try:
-            self.mqtt = PpgMqttFlow.from_config(
-                load_config(MQTT_CONFIG),
-                status_callback=self.on_mqtt_status,
-            )
+            self.mqtt = self.create_mqtt_flow()
         except (OSError, KeyError, TypeError, ValueError) as error:
             messagebox.showerror(
                 self.t("mqtt_config_error_title"),
@@ -1623,7 +1622,18 @@ class ArduinoPlotApp:
 
     # ==================== SERIAL ====================
 
-    def on_mqtt_status(self, status):
+    def create_mqtt_flow(self):
+        mqtt_flow = PpgMqttFlow.from_config(
+            load_config(MQTT_CONFIG),
+            status_callback=None,
+        )
+        mqtt_flow.status_callback = lambda status: self.on_mqtt_status(
+            status,
+            mqtt_flow,
+        )
+        return mqtt_flow
+
+    def on_mqtt_status(self, status, mqtt_flow=None):
         colors = {
             "connected": THEME["ok"],
             "connecting": THEME["warn"],
@@ -1634,6 +1644,8 @@ class ArduinoPlotApp:
         }
 
         def update():
+            if mqtt_flow is not None and self.mqtt is not mqtt_flow:
+                return
             self._mqtt_state = (status, colors.get(status, THEME["text_dim"]))
             if status == "connected" and self.mqtt_connect_after_id is not None:
                 try:
@@ -1710,6 +1722,9 @@ class ArduinoPlotApp:
     def start_serial(self):
         if self.running:
             return
+        if self.mqtt_cleanup_thread is not None:
+            self.start_after_stop = True
+            return
 
         port_name = self.port_combo.get()
         if not port_name:
@@ -1720,7 +1735,9 @@ class ArduinoPlotApp:
             return
 
         try:
+            mqtt_flow = self.create_mqtt_flow()
             serial_connection = serial.Serial(port_name, SERIAL_BAUD, timeout=0.1)
+            self.mqtt = mqtt_flow
             self.ser = serial_connection
             self.running = True
             self.mqtt.connect()
@@ -1763,6 +1780,7 @@ class ArduinoPlotApp:
 
     def stop_serial(self):
         self.running = False
+        self.start_after_stop = False
         if self.mqtt_connect_after_id is not None:
             try:
                 self.root.after_cancel(self.mqtt_connect_after_id)
@@ -1796,18 +1814,46 @@ class ArduinoPlotApp:
         serial_connection = self.ser
         self.ser = None
         try:
-            if serial_connection and serial_connection.is_open:
-                serial_connection.close()
+            if serial_connection:
+                cancel_read = getattr(serial_connection, "cancel_read", None)
+                if callable(cancel_read):
+                    cancel_read()
+                if serial_connection.is_open:
+                    serial_connection.close()
         except Exception:
             pass
 
         serial_thread = self.serial_thread
-        if serial_thread and serial_thread is not threading.current_thread():
-            serial_thread.join(timeout=1)
         self.serial_thread = None
 
-        self.mqtt.disconnect()
         self.set_serial_state("off", THEME["text_faint"])
+        if self.mqtt_cleanup_thread is None:
+            mqtt_flow = self.mqtt
+            self.mqtt_cleanup_thread = threading.Thread(
+                target=self.cleanup_stopped_session,
+                args=(serial_thread, mqtt_flow),
+                daemon=True,
+            )
+            self.mqtt_cleanup_thread.start()
+
+    def cleanup_stopped_session(self, serial_thread, mqtt_flow):
+        if serial_thread and serial_thread is not threading.current_thread():
+            serial_thread.join(timeout=2)
+        try:
+            mqtt_flow.disconnect()
+        except Exception as error:
+            print("MQTT stop error:", error)
+        try:
+            self.root.after(0, self.finish_stopped_session)
+        except (tk.TclError, RuntimeError):
+            pass
+
+    def finish_stopped_session(self):
+        self.mqtt_cleanup_thread = None
+        self.set_serial_state("off", THEME["text_faint"])
+        if self.start_after_stop:
+            self.start_after_stop = False
+            self.start_serial()
 
     def serial_reader(self, serial_connection):
         while (
@@ -1817,6 +1863,8 @@ class ArduinoPlotApp:
         ):
             try:
                 line = serial_connection.readline().decode("ascii").strip()
+                if not self.running or self.ser is not serial_connection:
+                    break
                 if not line:
                     continue
                 value = float(line)
@@ -1849,14 +1897,9 @@ class ArduinoPlotApp:
                 serial_connection.close()
         except Exception:
             pass
-        self.mqtt.disconnect()
-        try:
-            self.root.after(
-                0,
-                lambda: self.set_serial_state("off", THEME["text_faint"]),
-            )
-        except tk.TclError:
-            pass
+        if self.mqtt_cleanup_thread is None:
+            self.mqtt_cleanup_thread = threading.current_thread()
+            self.cleanup_stopped_session(None, self.mqtt)
 
     # ==================== NUMPAD ====================
 

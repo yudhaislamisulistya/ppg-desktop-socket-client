@@ -57,13 +57,27 @@ class FakeRoot:
     def __init__(self):
         self.sequence = 0
         self.cancelled = []
+        self.callbacks = {}
 
-    def after(self, _delay, _callback):
+    def after(self, delay, callback):
         self.sequence += 1
-        return f"after-{self.sequence}"
+        callback_id = f"after-{self.sequence}"
+        self.callbacks[callback_id] = (delay, callback)
+        return callback_id
 
     def after_cancel(self, callback_id):
         self.cancelled.append(callback_id)
+        self.callbacks.pop(callback_id, None)
+
+    def run_ready(self):
+        ready = [
+            callback_id
+            for callback_id, (delay, _callback) in self.callbacks.items()
+            if delay == 0
+        ]
+        for callback_id in ready:
+            _delay, callback = self.callbacks.pop(callback_id)
+            callback()
 
 
 class FakeSerial:
@@ -83,12 +97,17 @@ class FakeSerial:
         self.is_open = False
         self.release_read.set()
 
+    def cancel_read(self):
+        self.release_read.set()
+
 
 class FakeMqtt:
-    def __init__(self):
+    def __init__(self, disconnect_release=None):
         self.connected = True
         self.connect_count = 0
         self.disconnect_count = 0
+        self.disconnect_started = threading.Event()
+        self.disconnect_release = disconnect_release
         self.samples = []
 
     def connect(self):
@@ -96,6 +115,9 @@ class FakeMqtt:
 
     def disconnect(self):
         self.disconnect_count += 1
+        self.disconnect_started.set()
+        if self.disconnect_release is not None:
+            self.disconnect_release.wait(2)
 
     def add_sample(self, value):
         self.samples.append(value)
@@ -165,19 +187,26 @@ class DesktopLifecycleTest(unittest.TestCase):
         self.assertEqual(errors[0][0], "MQTT Tidak Terhubung")
         self.assertIsNone(app.mqtt_connect_after_id)
 
-    def test_stop_waits_for_old_reader_before_restart(self):
+    def test_stop_is_non_blocking_and_start_waits_for_clean_session(self):
         first_serial = FakeSerial()
         second_serial = FakeSerial()
         serials = iter((first_serial, second_serial))
         PP2.serial.Serial = lambda *_args, **_kwargs: next(serials)
+        release_first_mqtt = threading.Event()
+        first_mqtt = FakeMqtt(disconnect_release=release_first_mqtt)
+        second_mqtt = FakeMqtt()
+        mqtt_flows = iter((first_mqtt, second_mqtt))
 
         app = PP2.ArduinoPlotApp.__new__(PP2.ArduinoPlotApp)
         app.root = FakeRoot()
         app.port_combo = types.SimpleNamespace(get=lambda: "/dev/test")
-        app.mqtt = FakeMqtt()
+        app.mqtt = first_mqtt
+        app.create_mqtt_flow = lambda: next(mqtt_flows)
         app.running = False
         app.ser = None
         app.serial_thread = None
+        app.mqtt_cleanup_thread = None
+        app.start_after_stop = False
         app.mqtt_connect_after_id = None
         app.countdown_after_id = None
         app.logging_active = False
@@ -196,26 +225,85 @@ class DesktopLifecycleTest(unittest.TestCase):
         app.measurement_in_progress = True
         app.countdown_after_id = "countdown"
         first_thread = app.serial_thread
+        started_at = time.monotonic()
         app.stop_serial()
 
-        self.assertFalse(first_thread.is_alive())
-        self.assertEqual(app.mqtt.disconnect_count, 1)
+        self.assertLess(time.monotonic() - started_at, 0.5)
+        self.assertTrue(first_mqtt.disconnect_started.wait(1))
         self.assertFalse(app.logging_active)
         self.assertFalse(app.measurement_in_progress)
         self.assertIsNone(app.countdown_after_id)
         self.assertTrue(submit_enabled)
+        self.assertEqual(first_mqtt.samples, [])
 
         app.start_serial()
+        self.assertTrue(app.start_after_stop)
+        self.assertFalse(second_serial.read_started.is_set())
+
+        cleanup_thread = app.mqtt_cleanup_thread
+        release_first_mqtt.set()
+        cleanup_thread.join(1)
+        app.root.run_ready()
+
+        self.assertFalse(first_thread.is_alive())
         self.assertTrue(second_serial.read_started.wait(1))
         time.sleep(0.05)
 
         self.assertTrue(app.running)
         self.assertIs(app.ser, second_serial)
-        self.assertEqual(app.mqtt.connect_count, 2)
-        self.assertEqual(app.mqtt.disconnect_count, 1)
+        self.assertIs(app.mqtt, second_mqtt)
+        self.assertEqual(first_mqtt.connect_count, 1)
+        self.assertEqual(first_mqtt.disconnect_count, 1)
+        self.assertEqual(second_mqtt.connect_count, 1)
+        self.assertEqual(second_mqtt.disconnect_count, 0)
+
+        app._mqtt_state = ("connected", "green")
+        app._render_lamps = lambda: None
+        app.on_mqtt_status("disconnected", first_mqtt)
+        app.root.run_ready()
+        self.assertEqual(app._mqtt_state, ("connected", "green"))
 
         app.stop_serial()
-        self.assertEqual(app.mqtt.disconnect_count, 2)
+        self.assertTrue(second_mqtt.disconnect_started.wait(1))
+        app.mqtt_cleanup_thread.join(1)
+        app.root.run_ready()
+        self.assertEqual(second_mqtt.disconnect_count, 1)
+
+    def test_mqtt_disconnect_does_not_wait_for_network_loop_thread(self):
+        class BlockingClient:
+            def __init__(self):
+                self.loop_started = threading.Event()
+                self.release_loop = threading.Event()
+
+            def disconnect(self):
+                return None
+
+            def loop_stop(self):
+                self.loop_started.set()
+                self.release_loop.wait(2)
+
+        client = BlockingClient()
+        statuses = []
+        flow = PP2.PpgMqttFlow.__new__(PP2.PpgMqttFlow)
+        flow._lock = threading.RLock()
+        flow._network_started = True
+        flow._measurement_id = None
+        flow._batch = []
+        flow._connected = threading.Event()
+        flow._connected.set()
+        flow.device_id = "PPG-TEST0001"
+        flow.status_callback = statuses.append
+        flow.client = client
+        flow._publish_json = lambda *_args, **_kwargs: True
+
+        started_at = time.monotonic()
+        flow.disconnect()
+
+        self.assertLess(time.monotonic() - started_at, 0.5)
+        self.assertTrue(client.loop_started.wait(1))
+        self.assertFalse(flow.connected)
+        self.assertEqual(statuses[-1], "disconnected")
+        client.release_loop.set()
 
 
 if __name__ == "__main__":
