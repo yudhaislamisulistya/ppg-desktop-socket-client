@@ -154,7 +154,9 @@ Untuk alat yang sudah terdaftar sebelumnya, jangan jalankan ulang `register-devi
 docker compose restart mosquitto
 ```
 
-Script tersebut hanya mengubah baris `topic write` menjadi `topic readwrite` di dalam blok `# BEGIN DEVICE ...`, menyimpan cadangan `acl.bak`, dan tidak menyentuh file password maupun blok `storage`/`dashboard`.
+Script tersebut mengubah baris `topic write` menjadi `topic readwrite`, atau
+membuat ulang blok perangkat jika bloknya hilang. Script menyimpan cadangan
+`acl.bak` dan tidak menyentuh file password maupun blok `storage`/`dashboard`.
 
 Akun browser `dashboard` tetap read-only dan tidak ikut mendapat hak tulis dari pola wildcard perangkat.
 
