@@ -17,7 +17,7 @@
 
   --text: #e6eef6;
   --text-dim: #7b8fa4;
-  --text-faint: #4b5d6f;
+  --text-faint: #6b8095;
 
   --ch-pleth: #22d3ee;
   --ch-si: #fbbf24;
@@ -31,6 +31,18 @@
   --rec: #fb4e62;
   --ok: #4ade80;
   --warn: #fbbf24;
+  --body-glow: #10202e;
+  --topbar-fade: rgba(7, 11, 16, 0.86);
+  --plot-bg: #050a0f;
+  --chart-grid: rgba(34, 211, 238, 0.07);
+  --chart-empty: rgba(123, 143, 164, 0.65);
+  --chart-head: #a5f3fc;
+  --chart-glow: rgba(34, 211, 238, 0.55);
+  --mfcc-negative: #1b8f86;
+  --placeholder: #71879c;
+  --focus-ring: rgba(34, 211, 238, 0.22);
+  --accent-button-text: #04212b;
+  --accent-button-hover: #67e5f8;
 
   /* Fallback dipilih agar tetap rapat/teknis kalau Google Fonts diblokir. */
   --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -39,6 +51,46 @@
 
   --radius: 14px;
   --gap: 16px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f1f5f9;
+  --bg-panel: #ffffff;
+  --bg-raised: #e2e8f0;
+  --bg-input: #ffffff;
+  --line: #cbd5e1;
+  --line-soft: #e2e8f0;
+
+  --text: #0f172a;
+  --text-dim: #475569;
+  --text-faint: #64748b;
+
+  --ch-pleth: #0e7490;
+  --ch-si: #a16207;
+  --ch-hrv: #15803d;
+  --ch-bmi: #7c3aed;
+  --ch-age: #be185d;
+  --ch-volt: #0369a1;
+  --ch-adc: #475569;
+  --ch-mfcc: #0f766e;
+
+  --rec: #be123c;
+  --ok: #15803d;
+  --warn: #a16207;
+  --body-glow: #dbeafe;
+  --topbar-fade: rgba(241, 245, 249, 0.9);
+  --plot-bg: #f8fafc;
+  --chart-grid: rgba(8, 145, 178, 0.13);
+  --chart-empty: rgba(71, 85, 105, 0.78);
+  --chart-head: #0e7490;
+  --chart-glow: rgba(8, 145, 178, 0.28);
+  --mfcc-negative: #115e59;
+  --placeholder: #64748b;
+  --focus-ring: rgba(14, 116, 144, 0.24);
+  --accent-button-text: #f1f5f9;
+  --accent-button-hover: #155e75;
 }
 
 * {
@@ -55,7 +107,7 @@ body {
   margin: 0 auto;
   padding: 0 clamp(16px, 2.4vw, 36px) 48px;
   background:
-    radial-gradient(1200px 520px at 50% -10%, #10202e 0%, transparent 70%),
+    radial-gradient(1200px 520px at 50% -10%, var(--body-glow) 0%, transparent 70%),
     var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
@@ -92,7 +144,7 @@ dd {
   margin-bottom: var(--gap);
   padding: 18px 2px 14px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(var(--bg) 72%, rgba(7, 11, 16, 0.86));
+  background: linear-gradient(var(--bg) 72%, var(--topbar-fade));
   backdrop-filter: blur(8px);
 }
 
@@ -317,14 +369,15 @@ input {
 }
 
 input::placeholder {
-  color: #405165;
+  color: var(--placeholder);
 }
 
 input:focus-visible,
-button:focus-visible {
+button:focus-visible,
+summary:focus-visible {
   border-color: var(--ch-pleth);
   outline: 0;
-  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.14);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .primary-btn {
@@ -334,14 +387,14 @@ button:focus-visible {
   border-radius: 10px;
   padding: 0 20px;
   background: var(--ch-pleth);
-  color: #04212b;
+  color: var(--accent-button-text);
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
 }
 
 .primary-btn:hover {
-  background: #67e5f8;
+  background: var(--accent-button-hover);
 }
 
 .primary-btn[data-active="true"] {
@@ -368,6 +421,10 @@ button:focus-visible {
 .ghost-btn:hover {
   border-color: var(--ch-pleth);
   color: var(--text);
+}
+
+#theme-toggle {
+  min-width: 100px;
 }
 
 .conn-hint {
@@ -575,7 +632,7 @@ button:focus-visible {
   margin-top: 14px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
-  background: #050a0f;
+  background: var(--plot-bg);
 }
 
 /* ---------- MFCC -------------------------------------------------------- */
@@ -625,7 +682,7 @@ button:focus-visible {
 .mfcc-bar[data-sign="down"] i {
   top: 50%;
   border-radius: 0 0 2px 2px;
-  background: #1b8f86;
+  background: var(--mfcc-negative);
 }
 
 .mfcc-bar span {
@@ -647,6 +704,58 @@ button:focus-visible {
   border-radius: 8px;
   color: var(--text-faint);
   font-size: 12px;
+}
+
+.mfcc-details {
+  margin-top: 18px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+
+.mfcc-details summary {
+  width: fit-content;
+  border-radius: 6px;
+  color: var(--ch-mfcc);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mfcc-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mfcc-values > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: var(--bg-raised);
+  font-family: var(--font-mono);
+}
+
+.mfcc-values dt {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.mfcc-values dd {
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mfcc-values-empty {
+  grid-column: 1 / -1;
+  justify-content: flex-start !important;
+  color: var(--text-faint);
+  font-size: 11px;
 }
 
 /* ---------- Tabel diagnostik ------------------------------------------- */

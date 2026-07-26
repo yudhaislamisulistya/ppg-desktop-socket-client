@@ -38,6 +38,9 @@
         <span class="lamp" id="lamp-device" data-state="unknown">
           <i aria-hidden="true"></i>Alat <b id="lamp-device-text">belum diketahui</b>
         </span>
+        <button type="button" class="ghost-btn" id="theme-toggle" aria-pressed="false">
+          Tema: Gelap
+        </button>
         <button type="button" class="ghost-btn" id="panel-toggle" aria-expanded="true" aria-controls="connection">
           Koneksi
         </button>
@@ -115,6 +118,12 @@
             <span class="panel-note" id="mfcc-meta">menunggu data</span>
           </div>
           <div class="mfcc" id="mfcc-bars"></div>
+          <details class="mfcc-details">
+            <summary>Detail koefisien MFCC</summary>
+            <dl class="mfcc-values" id="mfcc-values">
+              <div class="mfcc-values-empty">Belum ada nilai koefisien.</div>
+            </dl>
+          </details>
         </section>
 
         <section class="panel diagnostic-panel">

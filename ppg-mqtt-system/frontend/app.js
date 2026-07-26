@@ -59,6 +59,7 @@ const ui = {
   connectButton: el("connect-button"),
   connection: el("connection"),
   panelToggle: el("panel-toggle"),
+  themeToggle: el("theme-toggle"),
   chipDevice: el("chip-device"),
   chipMode: el("chip-mode"),
   chipModeWrap: el("chip-mode-wrap"),
@@ -80,6 +81,7 @@ const ui = {
   sampleCount: el("sample-count"),
   mfccBars: el("mfcc-bars"),
   mfccMeta: el("mfcc-meta"),
+  mfccValues: el("mfcc-values"),
   linkRows: el("link-rows"),
   linkMeta: el("link-meta"),
   resultStatus: el("result-status"),
@@ -104,6 +106,8 @@ const state = {
   alertKey: "",
 };
 
+const THEME_STORAGE_KEY = "ppg-monitor-theme";
+
 /* ---------- Bantuan ------------------------------------------------------ */
 
 function formatNumber(value, digits, suffix = "") {
@@ -125,6 +129,39 @@ function formatClock(seconds) {
   const whole = Math.max(0, Math.floor(seconds));
   const minutes = String(Math.floor(whole / 60)).padStart(2, "0");
   return `${minutes}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+function themeColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function initialTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === "dark" || saved === "light") return saved;
+  } catch (_error) {
+    // Penyimpanan bisa diblokir dalam private mode; preferensi sistem tetap cukup.
+  }
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function applyTheme(theme, persist = true) {
+  const selected = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = selected;
+  ui.themeToggle.textContent = selected === "light" ? "Tema: Terang" : "Tema: Gelap";
+  ui.themeToggle.setAttribute("aria-pressed", String(selected === "light"));
+  ui.themeToggle.setAttribute(
+    "aria-label",
+    selected === "light" ? "Gunakan tema gelap" : "Gunakan tema terang",
+  );
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, selected);
+    } catch (_error) {
+      // Tema tetap berfungsi untuk sesi aktif walaupun storage tidak tersedia.
+    }
+  }
+  drawChart();
 }
 
 /* ---------- Form koneksi ------------------------------------------------- */
@@ -223,7 +260,30 @@ function updateVital(id, value, digits) {
 
 /* ---------- MFCC --------------------------------------------------------- */
 
+function renderMfccDetails(values) {
+  ui.mfccValues.replaceChildren();
+  if (!Array.isArray(values) || values.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "mfcc-values-empty";
+    empty.textContent = "Belum ada nilai koefisien.";
+    ui.mfccValues.append(empty);
+    return;
+  }
+
+  values.forEach((raw, index) => {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    const value = Number(raw);
+    term.textContent = `C${String(index + 1).padStart(2, "0")}`;
+    detail.textContent = Number.isFinite(value) ? value.toFixed(6) : "—";
+    row.append(term, detail);
+    ui.mfccValues.append(row);
+  });
+}
+
 function renderMfcc(values) {
+  renderMfccDetails(values);
   if (!Array.isArray(values) || values.length === 0) {
     ui.mfccBars.className = "mfcc-empty";
     ui.mfccBars.textContent = "Menunggu koefisien dari alat";
@@ -255,6 +315,7 @@ function renderMfcc(values) {
     bar.dataset.sign = value < 0 ? "down" : "up";
     bar.style.setProperty("--h", `${Math.max(2, (Math.abs(value) / peak) * 45)}px`);
     bar.title = `MFCC ${index + 1}: ${value.toFixed(3)}`;
+    bar.setAttribute("aria-label", `Koefisien MFCC ${index + 1}: ${value.toFixed(6)}`);
     bar.lastElementChild.textContent = index + 1;
   });
 }
@@ -377,7 +438,7 @@ function drawChart() {
   ctx.clearRect(0, 0, width, height);
 
   // Graticule halus khas monitor.
-  ctx.strokeStyle = "rgba(34, 211, 238, 0.07)";
+  ctx.strokeStyle = themeColor("--chart-grid");
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let i = 1; i < 4; i += 1) {
@@ -394,7 +455,7 @@ function drawChart() {
 
   const bounds = traceBounds();
   if (!bounds) {
-    ctx.fillStyle = "rgba(123, 143, 164, 0.65)";
+    ctx.fillStyle = themeColor("--chart-empty");
     ctx.font = '12px "IBM Plex Mono", monospace';
     ctx.textAlign = "center";
     ctx.fillText("menunggu sampel dari alat", width / 2, height / 2);
@@ -406,11 +467,11 @@ function drawChart() {
   const toY = (value) =>
     height - pad - ((value - bounds.lo) / span) * (height - pad * 2);
 
-  ctx.strokeStyle = "#22d3ee";
+  ctx.strokeStyle = themeColor("--ch-pleth");
   ctx.lineWidth = 1.6;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  ctx.shadowColor = "rgba(34, 211, 238, 0.55)";
+  ctx.shadowColor = themeColor("--chart-glow");
   ctx.shadowBlur = 7;
 
   ctx.beginPath();
@@ -437,8 +498,8 @@ function drawChart() {
   if (traceFilled[headIndex]) {
     const x = (headIndex / (TRACE_CAPACITY - 1)) * width;
     const y = toY(trace[headIndex]);
-    ctx.fillStyle = "#a5f3fc";
-    ctx.shadowColor = "rgba(34, 211, 238, 0.9)";
+    ctx.fillStyle = themeColor("--chart-head");
+    ctx.shadowColor = themeColor("--chart-glow");
     ctx.shadowBlur = 11;
     ctx.beginPath();
     ctx.arc(x, y, 2.6, 0, Math.PI * 2);
@@ -732,6 +793,7 @@ function tick() {
 
 ui.deviceId.value = CONFIG_EXAMPLE.device_id;
 ui.username.value = CONFIG_EXAMPLE.mqtt_username;
+applyTheme(initialTheme(), false);
 buildVitals();
 renderMfcc(null);
 renderLinks();
@@ -748,6 +810,9 @@ ui.panelToggle.addEventListener("click", () => {
   const open = ui.connection.hidden;
   ui.connection.hidden = !open;
   ui.panelToggle.setAttribute("aria-expanded", String(open));
+});
+ui.themeToggle.addEventListener("click", () => {
+  applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
 });
 window.addEventListener("resize", drawChart);
 

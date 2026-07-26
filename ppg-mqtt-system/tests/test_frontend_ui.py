@@ -1,0 +1,25 @@
+import unittest
+from pathlib import Path
+
+
+FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
+
+
+class FrontendUiContractTest(unittest.TestCase):
+    def test_theme_and_mfcc_detail_controls_are_wired(self):
+        html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+        css = (FRONTEND / "styles.css").read_text(encoding="utf-8")
+        javascript = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="theme-toggle"', html)
+        self.assertIn('aria-pressed="false"', html)
+        self.assertIn("<details", html)
+        self.assertIn('id="mfcc-values"', html)
+        self.assertIn(':root[data-theme="light"]', css)
+        self.assertIn("function applyTheme(", javascript)
+        self.assertIn("function renderMfccDetails(", javascript)
+        self.assertIn('value.toFixed(6)', javascript)
+
+
+if __name__ == "__main__":
+    unittest.main()

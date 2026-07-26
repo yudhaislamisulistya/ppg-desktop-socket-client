@@ -102,6 +102,38 @@ class FakeMqtt:
 
 
 class DesktopLifecycleTest(unittest.TestCase):
+    def test_language_theme_and_mfcc_detail_contract(self):
+        self.assertEqual(PP2.translated("id", "patient_name"), "NAMA PASIEN")
+        self.assertEqual(PP2.translated("en", "patient_name"), "PATIENT NAME")
+        self.assertEqual(
+            PP2.mfcc_detail_lines([1, -2.5]),
+            ["C01     1.000000", "C02    -2.500000"],
+        )
+        self.assertEqual(set(PP2.I18N["id"]), set(PP2.I18N["en"]))
+        self.assertEqual(set(PP2.DARK_THEME), set(PP2.LIGHT_THEME))
+
+    def test_submit_uses_required_patient_name(self):
+        app = PP2.ArduinoPlotApp.__new__(PP2.ArduinoPlotApp)
+        app.measurement_in_progress = False
+        app.patient_name_entry = types.SimpleNamespace(get=lambda: "Siti Aminah")
+        app.age_entry = types.SimpleNamespace(get=lambda: "42")
+        app.height_entry = types.SimpleNamespace(get=lambda: "160")
+        app.weight_entry = types.SimpleNamespace(get=lambda: "55")
+        published = []
+        app.mqtt = types.SimpleNamespace(
+            begin_measurement=lambda **payload: published.append(payload)
+        )
+        app.update_bmi_label = lambda _value: None
+        app.update_age_value_label = lambda _value: None
+        app.disable_submit_button = lambda: None
+        app.start_logging = lambda: None
+        app.start_countdown = lambda: None
+
+        app.submit_height()
+
+        self.assertEqual(published[0]["patient_code"], "Siti Aminah")
+        self.assertEqual(app.last_patient_name, "Siti Aminah")
+
     def test_mqtt_timeout_stops_silent_serial_session(self):
         app = PP2.ArduinoPlotApp.__new__(PP2.ArduinoPlotApp)
         app.running = True
