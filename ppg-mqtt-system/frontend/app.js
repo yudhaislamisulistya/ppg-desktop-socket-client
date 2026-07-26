@@ -18,8 +18,6 @@ const CONFIG_EXAMPLE = {
   mqtt_username: "PPG-ABC12345",
 };
 
-const DASHBOARD_USERNAME = "dashboard";
-
 const TOPIC_SUFFIXES = [
   "status",
   "raw",
@@ -55,14 +53,10 @@ const el = (id) => document.getElementById(id);
 
 const ui = {
   form: el("conn-form"),
-  role: el("account-role"),
-  host: el("host"),
-  port: el("port"),
   username: el("username"),
   password: el("password"),
   deviceId: el("device-id"),
   connectButton: el("connect-button"),
-  connHint: el("conn-hint"),
   connection: el("connection"),
   panelToggle: el("panel-toggle"),
   chipDevice: el("chip-device"),
@@ -134,26 +128,6 @@ function formatClock(seconds) {
 }
 
 /* ---------- Form koneksi ------------------------------------------------- */
-
-function applyRoleDefaults() {
-  const isDevice = ui.role.value === "device";
-  if (isDevice) {
-    ui.deviceId.value = CONFIG_EXAMPLE.device_id;
-    ui.username.value = CONFIG_EXAMPLE.mqtt_username;
-    ui.connHint.innerHTML =
-      "Isi persis seperti <code>ppg-desktop/mqtt_config.json</code> pada alat: " +
-      "<code>mqtt_username</code>, <code>mqtt_password</code>, dan " +
-      "<code>device_id</code>. Akun alat hanya bisa melihat alatnya sendiri.";
-  } else {
-    ui.deviceId.value = "+";
-    ui.username.value = DASHBOARD_USERNAME;
-    ui.connHint.innerHTML =
-      "Akun <code>dashboard</code> dibuat lewat " +
-      "<code>scripts/init-broker-users.sh</code> dan bisa membaca semua alat. " +
-      "Isi <code>+</code> pada Device ID untuk memantau seluruh alat.";
-  }
-  ui.password.placeholder = isDevice ? "mqtt_password alat" : "password dashboard";
-}
 
 function resolveWsProtocol(port) {
   // 443/8883 hanya masuk akal lewat TLS (WSS di balik reverse proxy).
@@ -604,12 +578,18 @@ function disconnect() {
 }
 
 function connect() {
-  const port = ui.port.value.trim();
-  const host = ui.host.value.trim();
-  const deviceId = ui.deviceId.value.trim() || "+";
+  const port = CONFIG_EXAMPLE.mqtt_port;
+  const host = CONFIG_EXAMPLE.mqtt_host;
+  const deviceId = ui.deviceId.value.trim();
+  const username = ui.username.value.trim();
 
-  if (!host || !port) {
-    showAlert("form", "bad", "Host dan port wajib diisi", "Lengkapi form koneksi.");
+  if (!deviceId || !username) {
+    showAlert(
+      "form",
+      "bad",
+      "Data koneksi belum lengkap",
+      "Device ID dan username wajib diisi.",
+    );
     return;
   }
   if (!ui.password.value) {
@@ -617,9 +597,7 @@ function connect() {
       "nopass",
       "bad",
       "Password belum diisi",
-      ui.role.value === "device"
-        ? "Gunakan nilai mqtt_password dari mqtt_config.json alat."
-        : "Gunakan password akun dashboard dari init-broker-users.sh.",
+      "Gunakan password MQTT yang sesuai dengan username.",
     );
     return;
   }
@@ -637,7 +615,7 @@ function connect() {
   // clientId wajib unik: clientId yang sama akan saling memutus di broker,
   // dan alat memakai device_id sebagai clientId-nya.
   const client = mqtt.connect(url, {
-    username: ui.username.value.trim(),
+    username,
     password: ui.password.value,
     clientId: `dashboard-${randomId}`,
     protocolVersion: 4,
@@ -747,9 +725,8 @@ function tick() {
 
 /* ---------- Inisialisasi ------------------------------------------------- */
 
-ui.host.value = CONFIG_EXAMPLE.mqtt_host;
-ui.port.value = CONFIG_EXAMPLE.mqtt_port;
-applyRoleDefaults();
+ui.deviceId.value = CONFIG_EXAMPLE.device_id;
+ui.username.value = CONFIG_EXAMPLE.mqtt_username;
 buildVitals();
 renderMfcc(null);
 renderLinks();
@@ -757,11 +734,6 @@ setMode("idle", null);
 ui.resultGrid.className = "result-empty";
 ui.resultGrid.textContent = "Belum ada sesi yang selesai.";
 
-ui.role.addEventListener("change", applyRoleDefaults);
-ui.deviceId.addEventListener("input", () => {
-  // Pada akun alat, username memang sama dengan device_id.
-  if (ui.role.value === "device") ui.username.value = ui.deviceId.value.trim();
-});
 ui.form.addEventListener("submit", (event) => {
   event.preventDefault();
   if (state.client) disconnect();

@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PPG Monitor — Realtime</title>
+    <link rel="icon" href="data:,">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans+Condensed:wght@600;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
@@ -13,7 +14,10 @@
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-name">PPG Monitor</span>
+        <span class="brand-copy">
+          <span class="brand-name">PPG Monitor</span>
+          <span class="brand-subtitle">Realtime patient dashboard</span>
+        </span>
       </div>
 
       <div class="topbar-chips">
@@ -41,37 +45,32 @@
     </header>
 
     <section class="connection" id="connection">
+      <div class="connection-head">
+        <div>
+          <p class="eyebrow">Koneksi MQTT</p>
+          <h1>Hubungkan perangkat</h1>
+        </div>
+        <p>Masukkan kredensial perangkat untuk mulai memantau data PPG secara realtime.</p>
+      </div>
       <form class="conn-form" id="conn-form" autocomplete="off">
         <p class="field">
-          <label for="account-role">Tipe akun</label>
-          <select id="account-role">
-            <option value="device">Akun alat — pantau alat sendiri</option>
-            <option value="dashboard">Akun dashboard — pantau semua alat</option>
-          </select>
-        </p>
-        <p class="field field-wide">
-          <label for="host">Broker host</label>
-          <input id="host" spellcheck="false">
-        </p>
-        <p class="field field-narrow">
-          <label for="port">Port</label>
-          <input id="port" inputmode="numeric" spellcheck="false">
-        </p>
-        <p class="field">
           <label for="device-id">Device ID</label>
-          <input id="device-id" spellcheck="false">
+          <input id="device-id" placeholder="Contoh: PPG-ABC12345" required autocapitalize="none" spellcheck="false">
         </p>
         <p class="field">
           <label for="username">Username</label>
-          <input id="username" autocomplete="username" spellcheck="false">
+          <input id="username" placeholder="Username MQTT" required autocomplete="username" autocapitalize="none" spellcheck="false">
         </p>
         <p class="field">
           <label for="password">Password</label>
-          <input id="password" type="password" autocomplete="current-password">
+          <input id="password" type="password" placeholder="Password MQTT" required autocomplete="current-password">
         </p>
         <button class="primary-btn" id="connect-button" type="submit">Hubungkan</button>
       </form>
-      <p class="conn-hint" id="conn-hint"></p>
+      <p class="conn-hint">
+        Broker tersambung otomatis. Gunakan Device ID perangkat, atau <code>+</code>
+        jika akun dashboard diizinkan memantau semua perangkat.
+      </p>
     </section>
 
     <div class="alert" id="alert" hidden>
@@ -107,7 +106,7 @@
           <canvas id="chart" role="img" aria-label="Grafik waveform PPG realtime"></canvas>
         </section>
 
-        <section class="panel">
+        <section class="panel mfcc-panel">
           <div class="panel-head">
             <div>
               <p class="eyebrow">Cepstral</p>
@@ -118,7 +117,7 @@
           <div class="mfcc" id="mfcc-bars"></div>
         </section>
 
-        <section class="panel">
+        <section class="panel diagnostic-panel">
           <div class="panel-head">
             <div>
               <p class="eyebrow">Diagnostik</p>
@@ -136,7 +135,7 @@
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel result-panel">
           <div class="panel-head">
             <div>
               <p class="eyebrow">Sesi</p>
