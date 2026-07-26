@@ -6,6 +6,9 @@ topic read ppg/+/measurement/result
 topic read ppg/+/status
 
 # Blok user perangkat ditambahkan otomatis di bawah oleh register-device.sh.
+# Setiap alat mendapat readwrite pada ppg/<DEVICE_ID>/... sehingga kredensial
+# alat juga bisa dipakai untuk memantau alat itu sendiri lewat dashboard,
+# tanpa bisa melihat alat lain.
 
 # Dashboard prototipe membaca data realtime seluruh alat.
 user dashboard

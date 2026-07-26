@@ -896,6 +896,17 @@ ppg/+/measurement/start
 ppg/+/measurement/result
 ```
 
+Selain akun `dashboard`, frontend juga dapat login memakai kredensial satu alat
+(`mqtt_username`/`mqtt_password` pada `mqtt_config.json`). Akun alat memiliki
+ACL `readwrite` terbatas pada `ppg/<DEVICE_ID>/...`, sehingga hanya dapat
+memantau alatnya sendiri dan tidak dapat membaca alat lain. Gunakan mode ini
+untuk halaman detail satu alat; gunakan akun `dashboard` untuk halaman yang
+memantau banyak alat sekaligus.
+
+Perlu diperhatikan: akun alat punya hak **tulis** pada topic tersebut. Jangan
+memakai kredensial alat pada halaman yang diakses pengguna umum, karena
+kredensial di browser selalu dapat dibaca lewat developer tools.
+
 ## 16. Troubleshooting
 
 ### Browser tidak dapat connect

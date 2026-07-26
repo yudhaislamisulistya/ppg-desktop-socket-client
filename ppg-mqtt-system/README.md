@@ -14,7 +14,7 @@ Eclipse Mosquitto
 
 Tidak ada backend REST pada versi ini. Frontend menerima waveform dan snapshot SI, HRV, BMI, Age, MFCC, Voltage, serta ADC langsung dari broker. Service `storage` hanya menyimpan raw recording dan hasil akhir setelah tombol `Submit` membuat `measurement_id`.
 
-MQTT over WebSocket sudah tersedia pada listener `9001` di `mosquitto/config/mosquitto.conf`. Konfigurasi development memakai `ws://`; TLS untuk `wss://` belum dikonfigurasi di proyek ini.
+MQTT over WebSocket tersedia pada listener `9001` di `mosquitto/config/mosquitto.conf`. Untuk uji LAN langsung ke port `9001`, gunakan `ws://`. Pada deployment saat ini, listener tersebut berada di belakang reverse proxy Traefik yang menyediakan `wss://` pada port `443` untuk domain `mqtt-glucometer.sivia.id`; detailnya ada di `device/PP2_INTEGRATION.md`. Frontend dan `pp2.py` sama-sama memakai jalur WSS itu secara default.
 
 Dokumentasi handoff untuk tim frontend tersedia di [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md).
 
@@ -139,13 +139,24 @@ Daftarkan satu per satu:
 
 Setiap perintah meminta password unik. Password tersebut dimasukkan ke `mqtt_config.json` pada Raspberry Pi yang sesuai.
 
-Perangkat yang tidak ada dalam file password akan ditolak broker. Script juga menambahkan ACL khusus sehingga username `PPG-ABC12345` hanya dapat menulis ke hierarchy:
+Perangkat yang tidak ada dalam file password akan ditolak broker. Script juga menambahkan ACL khusus sehingga username `PPG-ABC12345` hanya dapat mengakses hierarchy miliknya sendiri:
 
 ```text
 ppg/PPG-ABC12345/...
 ```
 
-ACL dibuat eksplisit per perangkat. Akun browser `dashboard` tetap read-only dan tidak ikut mendapat hak tulis dari pola wildcard perangkat.
+Sejak versi ini, ACL alat memakai `readwrite`, bukan `write` saja. Alat tetap tidak bisa menyentuh topic alat lain, tetapi kredensial pada `mqtt_config.json` kini juga dapat dipakai untuk login di dashboard dan memantau alat itu sendiri. Dengan ACL `write` saja, dashboard tetap berhasil connect tetapi seluruh `SUBSCRIBE` ditolak broker sehingga tidak ada data yang masuk.
+
+Untuk alat yang sudah terdaftar sebelumnya, jangan jalankan ulang `register-device.sh` (script itu meminta password baru). Pakai:
+
+```bash
+./scripts/upgrade-device-acl.sh PPG-ABC12345   # atau tanpa argumen untuk semua alat
+docker compose restart mosquitto
+```
+
+Script tersebut hanya mengubah baris `topic write` menjadi `topic readwrite` di dalam blok `# BEGIN DEVICE ...`, menyimpan cadangan `acl.bak`, dan tidak menyentuh file password maupun blok `storage`/`dashboard`.
+
+Akun browser `dashboard` tetap read-only dan tidak ikut mendapat hak tulis dari pola wildcard perangkat.
 
 Untuk mencabut alat:
 
@@ -177,15 +188,16 @@ http://IP_SERVER:9100
 
 Jika `FRONTEND_PORT` diubah pada `.env`, gunakan port tersebut pada URL.
 
-Isi:
+Form koneksi punya pemilih **Tipe akun** dengan dua mode:
 
-- Broker host: IP/domain server.
-- WebSocket port: `9001`.
-- Username: `dashboard`.
-- Password: password dashboard.
-- Device ID: satu ID tertentu atau `+` untuk melihat semua.
+| Tipe akun | Username | Device ID | Cakupan |
+|---|---|---|---|
+| Akun alat | `mqtt_username` dari `mqtt_config.json` | `device_id` alat | Hanya alat itu sendiri |
+| Akun dashboard | `dashboard` | `+` atau satu ID | Semua alat |
 
-Password dashboard tidak disimpan oleh halaman.
+Nilai awal form diambil dari `ppg-desktop/mqtt_config.example.json`, yaitu host `mqtt-glucometer.sivia.id`, port `443`, dan device `PPG-ABC12345`. Password tidak pernah diisi otomatis dan tidak disimpan oleh halaman.
+
+Panel **Langganan topic** menampilkan hasil `SUBACK` per topic beserta jumlah pesan dan waktu pesan terakhir. Kalau broker menolak langganan, kolom izin akan berisi `DITOLAK` dan halaman menampilkan perintah perbaikannya. Ini membedakan tiga kondisi yang sebelumnya terlihat sama: broker menolak ACL, alat sedang mati, atau Device ID salah ketik.
 
 Untuk deployment pada `202.141.15.3`, URL development menjadi:
 

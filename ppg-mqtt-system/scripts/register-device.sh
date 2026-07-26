@@ -60,14 +60,18 @@ awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" '
   !skipping { print }
 ' "$ACL_FILE" > "$TEMP_ACL"
 
+# readwrite (bukan write) supaya akun alat juga boleh subscribe ke topiknya
+# sendiri. Ini yang membuat dashboard dapat login memakai kredensial dari
+# mqtt_config.json dan langsung melihat alat tersebut. Cakupannya tetap satu
+# hierarchy ppg/<DEVICE_ID>/, jadi satu alat tidak bisa membaca alat lain.
 {
   printf "\n%s\n" "$BEGIN_MARKER"
   printf "user %s\n" "$DEVICE_ID"
-  printf "topic write ppg/%s/raw\n" "$DEVICE_ID"
-  printf "topic write ppg/%s/metrics\n" "$DEVICE_ID"
-  printf "topic write ppg/%s/measurement/start\n" "$DEVICE_ID"
-  printf "topic write ppg/%s/measurement/result\n" "$DEVICE_ID"
-  printf "topic write ppg/%s/status\n" "$DEVICE_ID"
+  printf "topic readwrite ppg/%s/raw\n" "$DEVICE_ID"
+  printf "topic readwrite ppg/%s/metrics\n" "$DEVICE_ID"
+  printf "topic readwrite ppg/%s/measurement/start\n" "$DEVICE_ID"
+  printf "topic readwrite ppg/%s/measurement/result\n" "$DEVICE_ID"
+  printf "topic readwrite ppg/%s/status\n" "$DEVICE_ID"
   printf "topic read ppg/%s/command\n" "$DEVICE_ID"
   printf "%s\n" "$END_MARKER"
 } >> "$TEMP_ACL"

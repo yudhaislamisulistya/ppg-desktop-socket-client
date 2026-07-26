@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
+from tkinter import font as tkfont
 import time
 import serial
 import serial.tools.list_ports as list_ports
@@ -59,9 +60,38 @@ IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
 
 
+# ==================== TEMA ====================
+# Bahasa visual monitor pasien bedside. Nilai warna sengaja identik dengan
+# ppg-mqtt-system/frontend/styles.css supaya satu metrik selalu punya warna
+# yang sama, baik di layar alat maupun di dashboard web.
+THEME = {
+    "bg": "#070b10",
+    "panel": "#0d131b",
+    "raised": "#131c27",
+    "input": "#080e15",
+    "line": "#1b2734",
+    "line_soft": "#141d28",
+    "text": "#e6eef6",
+    "text_dim": "#7b8fa4",
+    "text_faint": "#4b5d6f",
+    "ch_pleth": "#22d3ee",
+    "ch_si": "#fbbf24",
+    "ch_hrv": "#4ade80",
+    "ch_bmi": "#a78bfa",
+    "ch_age": "#f472b6",
+    "ch_volt": "#38bdf8",
+    "ch_adc": "#94a3b8",
+    "ch_mfcc": "#2dd4bf",
+    "rec": "#fb4e62",
+    "ok": "#4ade80",
+    "warn": "#fbbf24",
+    "plot_bg": "#050a0f",
+}
+
+
 def clean_number_input(text):
     """Membersihkan input angka dari karakter tidak valid"""
-    if text is None: 
+    if text is None:
         return ""
     cleaned = re.sub(r'[^\d.\-]', '', str(text).strip())
     parts = cleaned.split('.')
@@ -70,7 +100,232 @@ def clean_number_input(text):
     return cleaned
 
 
-class AnimationPlot: 
+def pick_font(candidates, fallback="Helvetica"):
+    """Memilih font pertama yang benar-benar tersedia di sistem.
+
+    Raspberry Pi OS umumnya punya keluarga DejaVu, macOS punya Helvetica.
+    """
+    try:
+        available = set(tkfont.families())
+    except tk.TclError:
+        return fallback
+    for name in candidates:
+        if name in available:
+            return name
+    return fallback
+
+
+def round_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
+    """Persegi bersudut membulat memakai polygon halus."""
+    points = [
+        x1 + radius, y1, x2 - radius, y1, x2, y1, x2, y1 + radius,
+        x2, y2 - radius, x2, y2, x2 - radius, y2, x1 + radius, y2,
+        x1, y2, x1, y2 - radius, x1, y1 + radius, x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
+
+
+class FlatButton(tk.Canvas):
+    """Tombol bersudut membulat; Tkinter tidak menyediakannya secara bawaan."""
+
+    def __init__(self, parent, text, command, *, fill, fg, font,
+                 width=88, height=34, surface=None, radius=8):
+        super().__init__(
+            parent,
+            width=width,
+            height=height,
+            highlightthickness=0,
+            bd=0,
+            bg=surface or parent.cget("bg"),
+        )
+        self._command = command
+        self._fill = fill
+        self._fg = fg
+        self._enabled = True
+        # Jangan pakai nama _w/_h: Tkinter memakai self._w sebagai path Tcl widget.
+        self._btn_w = width
+        self._btn_h = height
+        self._radius = radius
+
+        self._shape = round_rect(self, 1, 1, width - 1, height - 1, radius, fill=fill, outline="")
+        self._label = self.create_text(
+            width / 2, height / 2 + 1, text=text, fill=fg, font=font,
+        )
+
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    @staticmethod
+    def _shade(color, factor):
+        color = color.lstrip("#")
+        rgb = [int(color[i:i + 2], 16) for i in (0, 2, 4)]
+        if factor >= 0:
+            rgb = [int(value + (255 - value) * factor) for value in rgb]
+        else:
+            rgb = [int(value * (1 + factor)) for value in rgb]
+        return "#%02x%02x%02x" % tuple(max(0, min(255, value)) for value in rgb)
+
+    def _paint(self, fill, fg):
+        self.itemconfig(self._shape, fill=fill)
+        self.itemconfig(self._label, fill=fg)
+
+    def _on_enter(self, _event):
+        if self._enabled:
+            self._paint(self._shade(self._fill, 0.14), self._fg)
+
+    def _on_leave(self, _event):
+        if self._enabled:
+            self._paint(self._fill, self._fg)
+
+    def _on_press(self, _event):
+        if self._enabled:
+            self._paint(self._shade(self._fill, -0.18), self._fg)
+
+    def _on_release(self, event):
+        if not self._enabled:
+            return
+        self._paint(self._fill, self._fg)
+        if 0 <= event.x <= self._btn_w and 0 <= event.y <= self._btn_h and self._command:
+            self._command()
+
+    def set_text(self, text):
+        self.itemconfig(self._label, text=text)
+
+    def set_enabled(self, enabled):
+        self._enabled = bool(enabled)
+        if self._enabled:
+            self._paint(self._fill, self._fg)
+        else:
+            self._paint(THEME["raised"], THEME["text_faint"])
+
+
+class StatusLamp(tk.Frame):
+    """Lampu indikator: titik berwarna + label, seperti panel alat medis."""
+
+    def __init__(self, parent, caption, font_key, font_value, surface):
+        super().__init__(parent, bg=surface)
+        self.dot = tk.Canvas(self, width=9, height=9, highlightthickness=0, bd=0, bg=surface)
+        self._circle = self.dot.create_oval(1, 1, 8, 8, fill=THEME["text_faint"], outline="")
+        self.dot.pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Label(
+            self, text=caption, bg=surface, fg=THEME["text_faint"], font=font_key,
+        ).pack(side=tk.LEFT, padx=(0, 5))
+
+        self.value = tk.Label(self, text="—", bg=surface, fg=THEME["text_dim"], font=font_value)
+        self.value.pack(side=tk.LEFT)
+
+    def set(self, text, color):
+        self.dot.itemconfig(self._circle, fill=color)
+        self.value.config(text=text, fg=color)
+
+
+class MetricTile(tk.Frame):
+    """Kartu satu metrik dengan pita warna kanal di sisi kiri."""
+
+    def __init__(self, parent, caption, unit, accent, font_key, font_value, font_unit):
+        super().__init__(parent, bg=THEME["panel"], highlightthickness=1,
+                         highlightbackground=THEME["line"], highlightcolor=THEME["line"])
+        self.accent = accent
+
+        tk.Frame(self, bg=accent, width=3).pack(side=tk.LEFT, fill=tk.Y)
+
+        body = tk.Frame(self, bg=THEME["panel"])
+        body.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=9, pady=3)
+
+        tk.Label(
+            body, text=caption, bg=THEME["panel"], fg=THEME["text_faint"],
+            font=font_key, anchor="w",
+        ).pack(fill=tk.X)
+
+        row = tk.Frame(body, bg=THEME["panel"])
+        row.pack(fill=tk.X)
+
+        self.value = tk.Label(
+            row, text="—", bg=THEME["panel"], fg=THEME["text_faint"],
+            font=font_value, anchor="w",
+        )
+        self.value.pack(side=tk.LEFT)
+
+        if unit:
+            tk.Label(
+                row, text=unit, bg=THEME["panel"], fg=THEME["text_faint"],
+                font=font_unit, anchor="w",
+            ).pack(side=tk.LEFT, padx=(4, 0), pady=(0, 1))
+
+    def set_value(self, text, active=True):
+        self.value.config(
+            text=text,
+            fg=self.accent if active else THEME["text_faint"],
+        )
+
+
+class MfccStrip(tk.Canvas):
+    """Batang MFCC menyimpang dari garis nol: positif ke atas, negatif ke bawah."""
+
+    def __init__(self, parent, height=52):
+        super().__init__(parent, height=height, highlightthickness=0, bd=0, bg=THEME["panel"])
+        self._values = None
+        self._message = "menunggu koefisien"
+        self._font = ("Helvetica", 8)
+        self.bind("<Configure>", lambda _event: self.redraw())
+
+    def set_font(self, font):
+        self._font = font
+
+    def set_values(self, values):
+        self._values = list(values)
+        self.redraw()
+
+    def set_message(self, message):
+        self._values = None
+        self._message = message
+        self.redraw()
+
+    def redraw(self):
+        self.delete("all")
+        width = self.winfo_width()
+        height = self.winfo_height()
+        if width <= 1 or height <= 1:
+            return
+
+        middle = height / 2
+        self.create_line(0, middle, width, middle, fill=THEME["line"])
+
+        if not self._values:
+            self.create_text(
+                width / 2, middle, text=self._message,
+                fill=THEME["text_faint"], font=self._font,
+            )
+            return
+
+        count = len(self._values)
+        peak = max((abs(float(value)) for value in self._values), default=1.0) or 1.0
+        slot = width / count
+        bar_width = max(3.0, slot * 0.62)
+        limit = middle - 4
+
+        for index, raw in enumerate(self._values):
+            value = float(raw)
+            magnitude = max(2.0, (abs(value) / peak) * limit)
+            center = slot * (index + 0.5)
+            x1 = center - bar_width / 2
+            x2 = center + bar_width / 2
+            if value >= 0:
+                self.create_rectangle(
+                    x1, middle - magnitude, x2, middle,
+                    fill=THEME["ch_mfcc"], outline="",
+                )
+            else:
+                self.create_rectangle(
+                    x1, middle, x2, middle + magnitude,
+                    fill="#1b8f86", outline="",
+                )
+
+
+class AnimationPlot:
     def __init__(self, buffer_percentage=0.1, window_size=5, filter_window_size=40, min_distance=20):
         self.buffer_percentage = buffer_percentage
         self.window_size = window_size
@@ -82,7 +337,7 @@ class AnimationPlot:
         self.mfcc_accumulator = []
         self.vol_accumulator = []
         self.adc_accumulator = []
-        self. lock = threading.Lock()
+        self.lock = threading.Lock()
 
         self.sample_period_ms = 10.0
 
@@ -95,14 +350,14 @@ class AnimationPlot:
             "frame_ms": 200.0,
             "hop_ms": 40.0,
             "n_mfcc": 13,
-            "window":  "hamming",
+            "window": "hamming",
         }
 
         self.mfcc_mode = "standard"
 
     def reset_accumulators(self):
         with self.lock:
-            self. si_accumulator = []
+            self.si_accumulator = []
             self.hrv_accumulator = []
             self.mfcc_accumulator = []
             self.vol_accumulator = []
@@ -151,7 +406,7 @@ class AnimationPlot:
             return None, None
 
         delta_t_s = (delta_samples * sample_period_ms) / 1000.0
-        if app. last_height is None or delta_t_s <= 0:
+        if app.last_height is None or delta_t_s <= 0:
             return None, None
 
         height_m = app.last_height / 100.0
@@ -190,7 +445,7 @@ class AnimationPlot:
             return None
 
         if np.all(data == data[0]):
-            data = data. astype(float) + 1e-6 * np.random.randn(*data.shape)
+            data = data.astype(float) + 1e-6 * np.random.randn(*data.shape)
 
         frame_len = max(1, int(sr * frame_ms / 1000.0))
         hop_len = max(1, int(sr * hop_ms / 1000.0))
@@ -227,7 +482,7 @@ class AnimationPlot:
             )
 
             return np.mean(mfccs, axis=1)
-        except Exception: 
+        except Exception:
             return None
 
     def getPlotFormat(self, dataList, ax):
@@ -280,14 +535,10 @@ class AnimationPlot:
         signal = signal / max_abs * 200.0
 
         ax.clear()
+        app.style_axes(ax)
         self.getPlotFormat(None, ax)
-        ax.axhline(0, color='black', linewidth=0.5, linestyle='--')
-        ax.plot(signal, label="PPG AC (filtered)", color="#111111", linewidth=1.2)
-        ax.set_xlabel("Samples", fontsize=8)
-        ax.set_ylabel("Amplitude", fontsize=8)
-        ax.set_title("PPG AC - HRM Arduino", fontsize=9, pad=3)
-        ax.legend(loc="upper right", frameon=False, fontsize=7)
-        ax.tick_params(axis='both', which='major', labelsize=7)
+        ax.set_xlim(0, max(1, len(signal) - 1))
+        ax.plot(signal, color=THEME["ch_pleth"], linewidth=1.3, solid_joinstyle="round")
 
         min_rr_ms = 400.0
         min_distance_samples = int(min_rr_ms / self.sample_period_ms)
@@ -301,12 +552,25 @@ class AnimationPlot:
         except Exception:
             peak_indices = np.array([], dtype=int)
 
-        for idx_order, idx_peak in enumerate(peak_indices):
-            ax.axvline(idx_peak, color=("red" if idx_order % 2 == 0 else "blue"),
-                       linestyle="--", linewidth=0.8)
+        # Titik pada puncak lebih tenang dibanding garis vertikal penuh.
+        if len(peak_indices):
+            ax.plot(
+                peak_indices, signal[peak_indices],
+                linestyle="none", marker="o", markersize=3.0,
+                color=THEME["ch_si"], zorder=5,
+            )
+
+        # Penanda sampel terbaru, meniru kepala tulis monitor.
+        ax.plot(
+            [len(signal) - 1], [signal[-1]],
+            linestyle="none", marker="o", markersize=4.5,
+            color="#a5f3fc", zorder=6,
+        )
+
+        app.update_trace_meta(len(dataList), len(peak_indices))
 
         si_value = float(self.last_si_value)
-        hrv_value = float(self. last_hrv_value)
+        hrv_value = float(self.last_hrv_value)
         mfcc_value = None
 
         if len(peak_indices) >= 2:
@@ -320,7 +584,7 @@ class AnimationPlot:
                     self.ibi_raw_list = self.ibi_raw_list[-200:]
 
                 rmssd = self.compute_hrv_rmssd()
-                if rmssd is not None: 
+                if rmssd is not None:
                     hrv_value = rmssd
                     self.last_hrv_value = hrv_value
                     app.update_hrv_label(hrv_value)
@@ -335,11 +599,11 @@ class AnimationPlot:
             systolic_idx = peak_indices[-1]
             rr_samples = (systolic_idx - peak_indices[-2]) if len(peak_indices) >= 2 else None
 
-            if app.last_height is None: 
+            if app.last_height is None:
                 app.update_si_label("Set height")
             else:
                 si_med, _ = self.compute_si_medical(signal, systolic_idx, app, rr_samples=rr_samples)
-                if si_med is not None: 
+                if si_med is not None:
                     si_value = float(si_med)
                     self.last_si_value = si_value
                     app.update_si_label(si_value)
@@ -349,7 +613,7 @@ class AnimationPlot:
                         delta_t_s = (rr_samples * self.sample_period_ms) / 1000.0
                         if delta_t_s > 0:
                             si_value = float(height_m / delta_t_s)
-                            self. last_si_value = si_value
+                            self.last_si_value = si_value
                             app.update_si_label(si_value)
                         else:
                             app.update_si_label("Waiting SI")
@@ -368,7 +632,7 @@ class AnimationPlot:
                     end = peak_indices[-1]
                     if end > start and (end - start) >= 5:
                         segment_for_mfcc = signal[start: end]
-                    else: 
+                    else:
                         app.update_mfcc_label("Beat too short")
                 else:
                     app.update_mfcc_label("Waiting peaks (MFCC)")
@@ -393,43 +657,62 @@ class AnimationPlot:
                 self.adc_accumulator.append(float(last_adc))
 
                 if isinstance(si_value, (int, float)) and np.isfinite(si_value):
-                    self.si_accumulator. append(float(si_value))
+                    self.si_accumulator.append(float(si_value))
                 if isinstance(hrv_value, (int, float)) and np.isfinite(hrv_value):
                     self.hrv_accumulator.append(float(hrv_value))
                 if mfcc_value is not None and isinstance(mfcc_value, (list, np.ndarray)) and len(mfcc_value) == 13:
-                    self. mfcc_accumulator.append(np.array(mfcc_value, dtype=float))
+                    self.mfcc_accumulator.append(np.array(mfcc_value, dtype=float))
 
 
 class ArduinoPlotApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("HRM Arduino Monitor")
+        self.root.title("PPG Monitor")
 
-        self.bg_color = "#f5f5f7"
-        self.accent_color = "#007aff"
+        self.bg_color = THEME["bg"]
+        self.accent_color = THEME["ch_pleth"]
         self.root.configure(bg=self.bg_color)
 
-        # ===== WINDOW SETUP =====
-        window_width = 768
-        window_height = 420
+        # ===== FONT =====
+        family_ui = pick_font(
+            ["IBM Plex Sans", "DejaVu Sans", "Helvetica Neue", "Helvetica", "Arial"]
+        )
+        family_display = pick_font(
+            ["IBM Plex Sans Condensed", "DejaVu Sans Condensed", "Roboto Condensed",
+             "Arial Narrow", "Helvetica Neue", "Helvetica"]
+        )
+        family_mono = pick_font(
+            ["IBM Plex Mono", "DejaVu Sans Mono", "Menlo", "Consolas", "Courier New"]
+        )
 
+        self.font_key = (family_ui, 8, "bold")
+        self.font_small = (family_ui, 9)
+        self.font_mono = (family_mono, 9)
+        # 18pt adalah batas agar enam tile tetap muat pada layar Pi 480 piksel.
+        self.font_value = (family_display, 18, "bold")
+        self.font_unit = (family_ui, 8)
+        self.font_h2 = (family_ui, 11, "bold")
+        self.font_countdown = (family_display, 44, "bold")
+
+        # Nama lama dipertahankan karena dipakai popup dan handler lain.
+        self.scale = 1.0
+        self.btn_font = (family_ui, 9, "bold")
+        self.lbl_font = (family_ui, 9)
+
+        # ===== WINDOW =====
+        # Target utama layar sentuh Raspberry Pi 7 inci (800x480), tetapi tetap
+        # rapi bila dijalankan pada monitor yang lebih besar.
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
+        window_width = min(1024, max(800, screen_width - 40))
+        window_height = min(640, max(460, screen_height - 60))
 
         x = (screen_width // 2) - (window_width // 2)
         y = (screen_height // 2) - (window_height // 2)
 
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        self.root.minsize(768, 420)
+        self.root.minsize(780, 450)
         self.root.resizable(True, True)
-
-        # Font settings
-        self.scale = 1.0
-        base_btn_size = 9
-        base_lbl_size = 9
-
-        self.btn_font = ("Helvetica", base_btn_size, "bold")
-        self.lbl_font = ("Helvetica", base_lbl_size)
 
         # Serial & data
         self.running = False
@@ -470,81 +753,26 @@ class ArduinoPlotApp:
         # Window references
         self.averages_window = None
         self.numpad_window = None
-        self. settings_window = None
+        self.settings_window = None
 
         # Countdown label reference
         self.countdown_label = None
+        self.countdown_bar = None
+        self.countdown_bar_fill = None
         self.avg_si_label = None
-        self. avg_hrv_label = None
+        self.avg_hrv_label = None
         self.avg_mfcc_label = None
         self.avg_vol_label = None
         self.avg_adc_label = None
 
-        # Layout frames
-        self.top_frame = tk.Frame(root, bg=self.bg_color)
-        self.top_frame.pack(side=tk.TOP, fill=tk. BOTH, expand=True, padx=5, pady=5)
+        self._serial_state = ("mati", THEME["text_faint"])
+        self._mqtt_state = ("terputus", THEME["text_faint"])
+        self._hint_after_id = None
 
-        self.bottom_frame = tk.Frame(root, bg=self.bg_color)
-        self.bottom_frame.pack(side=tk. BOTTOM, fill=tk.X, padx=5, pady=3)
-
-        # ===== PLOT AREA =====
-        self.fig = plt.Figure(figsize=(8, 2.5), dpi=100)
-        self.fig.patch.set_facecolor(self.bg_color)
-
-        self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor("#ffffff")
-
-        self.fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.18)
-
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.top_frame)
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        # ttk style combobox
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except:
-            pass
-
-        style.configure(
-            "Big.TCombobox",
-            fieldbackground="#ffffff",
-            background="#ffffff",
-            foreground="#000000",
-            bordercolor="#dddddd",
-            padding=(2, 1, 2, 1),
-            arrowcolor="#555555"
-        )
-
-        # Baris 1: port + tombol
-        control_frame = tk.Frame(self.bottom_frame, bg=self.bg_color)
-        control_frame.pack(side=tk.TOP, fill=tk.X, pady=2)
-
-        tk.Label(control_frame, text="Port:", font=self.lbl_font, bg=self.bg_color).pack(side=tk.LEFT, padx=3)
-
-        self.port_combo = ttk.Combobox(control_frame, width=10, state="readonly", style="Big.TCombobox")
-        self.port_combo. pack(side=tk.LEFT, padx=3)
-
-        def make_btn(parent, text, bg_color, fg_color, cmd):
-            return tk.Button(
-                parent, text=text, command=cmd,
-                font=self.btn_font, bg=bg_color, fg=fg_color,
-                activebackground=bg_color, activeforeground=fg_color,
-                bd=0, relief="flat", width=8, height=1
-            )
-
-        self.refresh_button = make_btn(control_frame, "Refresh", "#e5e5ea", "#111111", self.refresh_ports)
-        self.refresh_button.pack(side=tk.LEFT, padx=3, pady=1)
-
-        self.start_button = make_btn(control_frame, "Start", "#34c759", "#ffffff", self.start_serial)
-        self.start_button.pack(side=tk.LEFT, padx=3, pady=1)
-
-        self.stop_button = make_btn(control_frame, "Stop", "#ff3b30", "#ffffff", self.stop_serial)
-        self.stop_button.pack(side=tk.LEFT, padx=3, pady=1)
-
-        self.status_label = tk.Label(control_frame, text="Disconnected",
-                                     fg=self.accent_color, font=self.lbl_font, bg=self.bg_color)
-        self.status_label.pack(side=tk.LEFT, padx=8)
+        self._build_style()
+        self._build_header()
+        self._build_footer()
+        self._build_body()
 
         try:
             self.mqtt = PpgMqttFlow.from_config(
@@ -558,80 +786,8 @@ class ArduinoPlotApp:
             )
             raise
 
-        # Baris 2: input (dengan Filename)
-        info_frame = tk.Frame(self.bottom_frame, bg=self.bg_color)
-        info_frame.pack(side=tk.TOP, fill=tk.X, pady=2)
+        self.device_label.config(text=self.mqtt.device_id)
 
-        # Field Filename
-        tk.Label(info_frame, text="Name:", font=self.lbl_font, bg=self.bg_color).pack(side=tk.LEFT, padx=3)
-        self.filename_entry = tk.Entry(info_frame, width=10, font=self.lbl_font, bd=1, relief="solid")
-        self.filename_entry.pack(side=tk.LEFT, padx=3)
-        self.filename_entry.bind("<FocusIn>", lambda e: setattr(self, "active_entry", self.filename_entry))
-
-        tk.Label(info_frame, text="Age:", font=self.lbl_font, bg=self.bg_color).pack(side=tk.LEFT, padx=3)
-        self.age_entry = tk.Entry(info_frame, width=4, font=self.lbl_font, bd=1, relief="solid")
-        self.age_entry.pack(side=tk. LEFT, padx=3)
-        self.age_entry.bind("<FocusIn>", lambda e: setattr(self, "active_entry", self.age_entry))
-        self.active_entry = self.age_entry
-
-        tk.Label(info_frame, text="Height:", font=self.lbl_font, bg=self. bg_color).pack(side=tk.LEFT, padx=3)
-        self.height_entry = tk.Entry(info_frame, width=5, font=self.lbl_font, bd=1, relief="solid")
-        self.height_entry.pack(side=tk. LEFT, padx=3)
-        self.height_entry.bind("<FocusIn>", lambda e: setattr(self, "active_entry", self.height_entry))
-
-        tk.Label(info_frame, text="Weight:", font=self.lbl_font, bg=self.bg_color).pack(side=tk.LEFT, padx=3)
-        self.weight_entry = tk.Entry(info_frame, width=5, font=self.lbl_font, bd=1, relief="solid")
-        self.weight_entry. pack(side=tk.LEFT, padx=3)
-        self.weight_entry.bind("<FocusIn>", lambda e:  setattr(self, "active_entry", self.weight_entry))
-
-        def make_small_btn(parent, text, cmd, bg_color="#e5e5ea", fg_color="#111111"):
-            return tk.Button(
-                parent, text=text, command=cmd,
-                font=self.btn_font,
-                bg=bg_color, fg=fg_color,
-                activebackground="#d1d1d6", activeforeground="#111111",
-                bd=0, relief="flat", width=7, height=1,
-                disabledforeground="#999999"
-            )
-
-        self.numpad_button = make_small_btn(info_frame, "Numpad", self.open_numpad)
-        self.numpad_button.pack(side=tk.LEFT, padx=3, pady=1)
-
-        self.submit_button = make_small_btn(info_frame, "Submit", self.submit_height, "#007aff", "#ffffff")
-        self.submit_button.pack(side=tk.LEFT, padx=3, pady=1)
-
-        self.settings_button = make_small_btn(info_frame, "Settings", self.open_settings)
-        self.settings_button.pack(side=tk.LEFT, padx=3, pady=1)
-
-        # Baris 3 & 4: metrik
-        metrics_frame1 = tk.Frame(self. bottom_frame, bg=self. bg_color)
-        metrics_frame1.pack(side=tk.TOP, fill=tk.X, pady=1)
-
-        metrics_frame2 = tk.Frame(self.bottom_frame, bg=self.bg_color)
-        metrics_frame2.pack(side=tk.TOP, fill=tk.X, pady=1)
-
-        self.si_label = tk.Label(metrics_frame1, text="SI:  0", font=self.lbl_font, bg=self. bg_color)
-        self.si_label.pack(side=tk.LEFT, padx=8)
-
-        self.hrv_label = tk.Label(metrics_frame1, text="HRV: 0", font=self. lbl_font, bg=self.bg_color)
-        self.hrv_label.pack(side=tk.LEFT, padx=8)
-
-        self.bmi_label = tk.Label(metrics_frame1, text="BMI: 0.00", font=self.lbl_font, bg=self.bg_color)
-        self.bmi_label.pack(side=tk.LEFT, padx=8)
-
-        self.age_value_label = tk.Label(metrics_frame1, text="Age: -", font=self.lbl_font, bg=self.bg_color)
-        self.age_value_label.pack(side=tk.LEFT, padx=8)
-
-        self.mfcc_label = tk.Label(metrics_frame2, text="MFCC:  0", font=self.lbl_font, bg=self. bg_color)
-        self.mfcc_label.pack(side=tk.LEFT, padx=8)
-
-        self.vol_label = tk.Label(metrics_frame2, text="Vol:  0.00 V", font=self.lbl_font, bg=self.bg_color)
-        self.vol_label.pack(side=tk. LEFT, padx=8)
-
-        self.adc_label = tk.Label(metrics_frame2, text="ADC: 0", font=self.lbl_font, bg=self.bg_color)
-        self.adc_label.pack(side=tk.LEFT, padx=8)
-
-        # Plot handler
         self.realTimePlot = AnimationPlot(
             buffer_percentage=0.1,
             window_size=5,
@@ -652,15 +808,285 @@ class ArduinoPlotApp:
         self.refresh_ports()
         self.schedule_metrics_publish()
 
+    # ==================== TATA LETAK ====================
+
+    def _build_style(self):
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure(
+            "Dark.TCombobox",
+            fieldbackground=THEME["input"],
+            background=THEME["raised"],
+            foreground=THEME["text"],
+            bordercolor=THEME["line"],
+            lightcolor=THEME["line"],
+            darkcolor=THEME["line"],
+            arrowcolor=THEME["text_dim"],
+            padding=(6, 4),
+        )
+        style.map(
+            "Dark.TCombobox",
+            fieldbackground=[("readonly", THEME["input"])],
+            foreground=[("readonly", THEME["text"])],
+        )
+        self.root.option_add("*TCombobox*Listbox.background", THEME["raised"])
+        self.root.option_add("*TCombobox*Listbox.foreground", THEME["text"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", THEME["ch_pleth"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", THEME["bg"])
+
+        style.configure("Dark.Horizontal.TSeparator", background=THEME["line"])
+
+    def _build_header(self):
+        header = tk.Frame(self.root, bg=self.bg_color)
+        header.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(10, 6))
+
+        tk.Frame(header, bg=THEME["ch_pleth"], width=4, height=20).pack(side=tk.LEFT)
+        tk.Label(
+            header, text="PPG MONITOR", bg=self.bg_color, fg=THEME["text"],
+            font=(self.font_h2[0], 12, "bold"),
+        ).pack(side=tk.LEFT, padx=(9, 14))
+
+        self.device_label = tk.Label(
+            header, text="—", bg=self.bg_color, fg=THEME["text_dim"], font=self.font_mono,
+        )
+        self.device_label.pack(side=tk.LEFT)
+
+        self.mqtt_lamp = StatusLamp(header, "MQTT", self.font_key, self.font_small, self.bg_color)
+        self.mqtt_lamp.pack(side=tk.RIGHT, padx=(14, 0))
+
+        self.serial_lamp = StatusLamp(header, "SERIAL", self.font_key, self.font_small, self.bg_color)
+        self.serial_lamp.pack(side=tk.RIGHT)
+
+        self._render_lamps()
+
+        tk.Frame(self.root, bg=THEME["line"], height=1).pack(side=tk.TOP, fill=tk.X)
+
+    def _build_footer(self):
+        footer = tk.Frame(self.root, bg=self.bg_color)
+        footer.pack(side=tk.BOTTOM, fill=tk.X, padx=12, pady=(4, 10))
+
+        # Baris kendali koneksi.
+        control = tk.Frame(footer, bg=self.bg_color)
+        control.pack(side=tk.TOP, fill=tk.X, pady=(0, 6))
+
+        tk.Label(
+            control, text="PORT", bg=self.bg_color, fg=THEME["text_faint"], font=self.font_key,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        self.port_combo = ttk.Combobox(
+            control, width=14, state="readonly", style="Dark.TCombobox", font=self.font_mono,
+        )
+        self.port_combo.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.refresh_button = FlatButton(
+            control, "Refresh", self.refresh_ports, fill=THEME["raised"],
+            fg=THEME["text"], font=self.btn_font, width=82, surface=self.bg_color,
+        )
+        self.refresh_button.pack(side=tk.LEFT, padx=(0, 6))
+
+        self.start_button = FlatButton(
+            control, "Start", self.start_serial, fill=THEME["ch_hrv"],
+            fg="#04240f", font=self.btn_font, width=82, surface=self.bg_color,
+        )
+        self.start_button.pack(side=tk.LEFT, padx=(0, 6))
+
+        self.stop_button = FlatButton(
+            control, "Stop", self.stop_serial, fill=THEME["rec"],
+            fg="#2b0308", font=self.btn_font, width=82, surface=self.bg_color,
+        )
+        self.stop_button.pack(side=tk.LEFT)
+
+        self.hint_label = tk.Label(
+            control, text="", bg=self.bg_color, fg=THEME["text_faint"], font=self.font_small,
+        )
+        self.hint_label.pack(side=tk.LEFT, padx=12)
+
+        self.settings_button = FlatButton(
+            control, "Settings", self.open_settings, fill=THEME["raised"],
+            fg=THEME["text"], font=self.btn_font, width=86, surface=self.bg_color,
+        )
+        self.settings_button.pack(side=tk.RIGHT)
+
+        # Baris input pasien.
+        info = tk.Frame(footer, bg=self.bg_color)
+        info.pack(side=tk.TOP, fill=tk.X)
+
+        def add_entry(caption, width):
+            wrap = tk.Frame(info, bg=self.bg_color)
+            wrap.pack(side=tk.LEFT, padx=(0, 10))
+            tk.Label(
+                wrap, text=caption, bg=self.bg_color, fg=THEME["text_faint"],
+                font=self.font_key, anchor="w",
+            ).pack(fill=tk.X)
+            entry = tk.Entry(
+                wrap, width=width, font=self.font_mono, bd=0, relief="flat",
+                bg=THEME["input"], fg=THEME["text"], insertbackground=THEME["ch_pleth"],
+                highlightthickness=1, highlightbackground=THEME["line"],
+                highlightcolor=THEME["ch_pleth"], justify="left",
+            )
+            entry.pack(ipady=6)
+            entry.bind("<FocusIn>", lambda _event, target=entry: setattr(self, "active_entry", target))
+            return entry
+
+        self.filename_entry = add_entry("KODE PASIEN", 12)
+        self.age_entry = add_entry("UMUR", 5)
+        self.height_entry = add_entry("TINGGI CM", 7)
+        self.weight_entry = add_entry("BERAT KG", 7)
+        self.active_entry = self.age_entry
+
+        actions = tk.Frame(info, bg=self.bg_color)
+        actions.pack(side=tk.LEFT, padx=(2, 0), pady=(13, 0))
+
+        self.numpad_button = FlatButton(
+            actions, "Numpad", self.open_numpad, fill=THEME["raised"],
+            fg=THEME["text"], font=self.btn_font, width=82, surface=self.bg_color,
+        )
+        self.numpad_button.pack(side=tk.LEFT, padx=(0, 6))
+
+        self.submit_button = FlatButton(
+            actions, "Submit", self.submit_height, fill=THEME["ch_pleth"],
+            fg="#04212b", font=self.btn_font, width=90, surface=self.bg_color,
+        )
+        self.submit_button.pack(side=tk.LEFT)
+
+    def _build_body(self):
+        body = tk.Frame(self.root, bg=self.bg_color)
+        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=12, pady=8)
+
+        # Urutan pack menentukan pembagian ruang: widget berukuran tetap harus
+        # di-pack lebih dulu, baru widget expand=True mengisi sisanya. Kalau
+        # dibalik, rail dan strip MFCC hanya kebagian 1x1 piksel.
+        left = tk.Frame(body, bg=self.bg_color)
+        rail = tk.Frame(body, bg=self.bg_color, width=196)
+        rail.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        rail.pack_propagate(False)
+        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # ----- Kolom kiri: waveform + MFCC -----
+        trace_panel = tk.Frame(
+            left, bg=THEME["panel"], highlightthickness=1,
+            highlightbackground=THEME["line"], highlightcolor=THEME["line"],
+        )
+        mfcc_panel = tk.Frame(
+            left, bg=THEME["panel"], highlightthickness=1,
+            highlightbackground=THEME["line"], highlightcolor=THEME["line"],
+        )
+        mfcc_panel.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        trace_panel.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        trace_head = tk.Frame(trace_panel, bg=THEME["panel"])
+        trace_head.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(9, 0))
+
+        titles = tk.Frame(trace_head, bg=THEME["panel"])
+        titles.pack(side=tk.LEFT)
+        tk.Label(
+            titles, text="PLETH · RAW ADC", bg=THEME["panel"], fg=THEME["text_faint"],
+            font=self.font_key, anchor="w",
+        ).pack(fill=tk.X)
+        tk.Label(
+            titles, text="Waveform", bg=THEME["panel"], fg=THEME["text"],
+            font=self.font_h2, anchor="w",
+        ).pack(fill=tk.X)
+
+        self.trace_meta = tk.Label(
+            trace_head, text="0 sampel", bg=THEME["panel"], fg=THEME["text_faint"],
+            font=self.font_mono,
+        )
+        self.trace_meta.pack(side=tk.RIGHT, pady=(0, 2))
+
+        self.fig = plt.Figure(figsize=(7, 2.6), dpi=100, facecolor=THEME["panel"])
+        self.ax = self.fig.add_subplot(111)
+        self.fig.subplots_adjust(left=0.05, right=0.99, top=0.97, bottom=0.10)
+        self.style_axes(self.ax)
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=trace_panel)
+        self.canvas.get_tk_widget().configure(bg=THEME["panel"], highlightthickness=0, bd=0)
+        self.canvas.get_tk_widget().pack(
+            side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(4, 10)
+        )
+
+        mfcc_head = tk.Frame(mfcc_panel, bg=THEME["panel"])
+        mfcc_head.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(7, 0))
+        tk.Label(
+            mfcc_head, text="MFCC", bg=THEME["panel"], fg=THEME["text_faint"],
+            font=self.font_key,
+        ).pack(side=tk.LEFT)
+        self.mfcc_meta = tk.Label(
+            mfcc_head, text="menunggu data", bg=THEME["panel"], fg=THEME["text_faint"],
+            font=self.font_mono,
+        )
+        self.mfcc_meta.pack(side=tk.RIGHT)
+
+        self.mfcc_strip = MfccStrip(mfcc_panel, height=54)
+        self.mfcc_strip.set_font(self.font_small)
+        self.mfcc_strip.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(2, 9))
+
+        # ----- Kolom kanan: rail metrik -----
+        def add_tile(caption, unit, accent):
+            tile = MetricTile(
+                rail, caption, unit, accent,
+                self.font_key, self.font_value, self.font_unit,
+            )
+            tile.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0, 5))
+            return tile
+
+        self.tile_si = add_tile("SI", "m/s", THEME["ch_si"])
+        self.tile_hrv = add_tile("HRV", "ms", THEME["ch_hrv"])
+        self.tile_bmi = add_tile("BMI", "kg/m²", THEME["ch_bmi"])
+        self.tile_age = add_tile("UMUR", "th", THEME["ch_age"])
+        self.tile_volt = add_tile("VOLTASE", "V", THEME["ch_volt"])
+        self.tile_adc = add_tile("ADC", "", THEME["ch_adc"])
+
+    def style_axes(self, ax):
+        """Gaya sumbu matplotlib; dipanggil ulang setiap frame setelah clear()."""
+        ax.set_facecolor(THEME["plot_bg"])
+        ax.grid(True, color=THEME["ch_pleth"], alpha=0.07, linewidth=0.7)
+        ax.tick_params(axis="both", which="major", labelsize=6,
+                       colors=THEME["text_faint"], length=2)
+        for spine in ax.spines.values():
+            spine.set_color(THEME["line_soft"])
+            spine.set_linewidth(0.8)
+
+    def update_trace_meta(self, sample_count, peak_count):
+        try:
+            self.trace_meta.config(text=f"{sample_count} sampel · {peak_count} puncak")
+        except tk.TclError:
+            pass
+
+    def show_hint(self, message):
+        try:
+            self.hint_label.config(text=message)
+        except tk.TclError:
+            return
+        if self._hint_after_id is not None:
+            try:
+                self.root.after_cancel(self._hint_after_id)
+            except tk.TclError:
+                pass
+        try:
+            self._hint_after_id = self.root.after(
+                4000, lambda: self.hint_label.config(text="")
+            )
+        except tk.TclError:
+            self._hint_after_id = None
+
+    def _render_lamps(self):
+        self.serial_lamp.set(*self._serial_state)
+        self.mqtt_lamp.set(*self._mqtt_state)
+
     def disable_submit_button(self):
         try:
-            self.submit_button.config(state=tk.DISABLED, bg="#cccccc")
+            self.submit_button.set_enabled(False)
         except tk.TclError:
             pass
 
     def enable_submit_button(self):
         try:
-            self.submit_button.config(state=tk.NORMAL, bg="#007aff")
+            self.submit_button.set_enabled(True)
         except tk.TclError:
             pass
 
@@ -675,13 +1101,13 @@ class ArduinoPlotApp:
     def _create_popup(self, title, width=None, height=None):
         popup = tk.Toplevel(self.root)
         popup.title(title)
-        popup.configure(bg=self.bg_color)
+        popup.configure(bg=THEME["bg"])
 
         popup.attributes("-topmost", True)
 
         if width and height:
             x = (self.root.winfo_screenwidth() // 2) - (width // 2)
-            y = (self.root. winfo_screenheight() // 2) - (height // 2)
+            y = (self.root.winfo_screenheight() // 2) - (height // 2)
             popup.geometry(f"{width}x{height}+{x}+{y}")
 
         popup.resizable(True, True)
@@ -693,24 +1119,28 @@ class ArduinoPlotApp:
     # ==================== SERIAL ====================
 
     def on_mqtt_status(self, status):
-        colors = {
-            "connected": "#34c759",
-            "connecting": "#ff9500",
-            "reconnecting": "#ff9500",
-            "rejected": "#ff3b30",
-            "error": "#ff3b30",
-            "disconnected": "#ff3b30",
+        labels = {
+            "connected": ("terhubung", THEME["ok"]),
+            "connecting": ("menghubungkan", THEME["warn"]),
+            "reconnecting": ("menyambung ulang", THEME["warn"]),
+            "rejected": ("ditolak", THEME["rec"]),
+            "error": ("gagal", THEME["rec"]),
+            "disconnected": ("terputus", THEME["text_faint"]),
         }
 
         def update():
-            serial_status = "connected" if self.running else "off"
-            self.status_label.config(
-                text=f"Serial: {serial_status} | MQTT: {status}",
-                fg=colors.get(status, self.accent_color),
-            )
+            self._mqtt_state = labels.get(status, (status, THEME["text_dim"]))
+            self._render_lamps()
 
         try:
             self.root.after(0, update)
+        except tk.TclError:
+            pass
+
+    def set_serial_state(self, text, color):
+        self._serial_state = (text, color)
+        try:
+            self._render_lamps()
         except tk.TclError:
             pass
 
@@ -760,30 +1190,29 @@ class ArduinoPlotApp:
             self.port_combo.current(0)
         else:
             self.port_combo.set("")
-        self.status_label.config(text="Ports refreshed", fg=self.accent_color)
+        self.show_hint(
+            f"{len(port_names)} port terdeteksi" if port_names else "Tidak ada port serial"
+        )
 
     def start_serial(self):
         if self.running:
             return
 
-        port_name = self.port_combo. get()
+        port_name = self.port_combo.get()
         if not port_name:
             messagebox.showwarning("No Port", "Silakan pilih port terlebih dahulu.")
             return
 
         try:
-            self. ser = serial.Serial(port_name, SERIAL_BAUD, timeout=0.1)
+            self.ser = serial.Serial(port_name, SERIAL_BAUD, timeout=0.1)
             self.running = True
             self.mqtt.connect()
             self.serial_thread = threading.Thread(target=self.serial_reader, daemon=True)
             self.serial_thread.start()
-            self.status_label.config(
-                text="Serial: connected | MQTT: connecting",
-                fg="#ff9500",
-            )
+            self.set_serial_state("terhubung", THEME["ok"])
         except serial.SerialException as e:
             messagebox.showerror("Serial Error", f"Gagal membuka port {port_name}:\n{e}")
-            self.status_label.config(text="Disconnected", fg="#ff3b30")
+            self.set_serial_state("gagal", THEME["rec"])
             self.running = False
             self.ser = None
         except Exception as error:
@@ -795,21 +1224,18 @@ class ArduinoPlotApp:
                 pass
             self.ser = None
             messagebox.showerror("MQTT Error", f"Gagal memulai MQTT:\n{error}")
-            self.status_label.config(text="Disconnected", fg="#ff3b30")
+            self.set_serial_state("gagal", THEME["rec"])
 
     def stop_serial(self):
         self.running = False
         try:
             if self.ser and self.ser.is_open:
                 self.ser.close()
-        except Exception: 
+        except Exception:
             pass
         self.ser = None
         self.mqtt.disconnect()
-        self.status_label.config(
-            text="Serial: off | MQTT: disconnected",
-            fg="#ff3b30",
-        )
+        self.set_serial_state("mati", THEME["text_faint"])
 
     def serial_reader(self):
         while self.running and self.ser and self.ser.is_open:
@@ -834,25 +1260,19 @@ class ArduinoPlotApp:
         self.running = False
         self.mqtt.disconnect()
         try:
-            self.root.after(
-                0,
-                lambda: self.status_label.config(
-                    text="Serial: off | MQTT: disconnected",
-                    fg="#ff3b30",
-                ),
-            )
+            self.root.after(0, lambda: self.set_serial_state("mati", THEME["text_faint"]))
         except tk.TclError:
             pass
 
     # ==================== NUMPAD ====================
 
     def open_numpad(self):
-        if self._is_window_valid(self. numpad_window):
+        if self._is_window_valid(self.numpad_window):
             self.numpad_window.lift()
             self.numpad_window.focus_force()
             return
 
-        self.numpad_window = self._create_popup("Numpad", 180, 250)
+        self.numpad_window = self._create_popup("Numpad", 250, 330)
 
         def on_numpad_close():
             try:
@@ -864,8 +1284,8 @@ class ArduinoPlotApp:
 
         self.numpad_window.protocol("WM_DELETE_WINDOW", on_numpad_close)
 
-        btn_frame = tk.Frame(self.numpad_window, bg=self.bg_color)
-        btn_frame.pack(expand=True, fill=tk. BOTH, padx=8, pady=8)
+        btn_frame = tk.Frame(self.numpad_window, bg=THEME["bg"])
+        btn_frame.pack(expand=True, fill=tk.BOTH, padx=12, pady=12)
 
         buttons = [
             ("7", 0, 0), ("8", 0, 1), ("9", 0, 2),
@@ -875,38 +1295,39 @@ class ArduinoPlotApp:
             ("Del", 4, 0), ("OK", 4, 1),
         ]
 
+        key_font = (self.btn_font[0], 13, "bold")
+
         for (text, r, c) in buttons:
             colspan = 2 if text == "OK" else 1
-            bg_clr = "#e5e5ea"
-            fg_clr = "#111111"
+            fill = THEME["raised"]
+            fg = THEME["text"]
             if text == "OK":
-                bg_clr = "#34c759"
-                fg_clr = "#ffffff"
+                fill = THEME["ch_hrv"]
+                fg = "#04240f"
             elif text == "C":
-                bg_clr = "#ff9500"
+                fill = THEME["warn"]
+                fg = "#2b1d00"
+            elif text == "Del":
+                fill = THEME["raised"]
+                fg = THEME["warn"]
 
-            b = tk.Button(
-                btn_frame,
-                text=text,
-                width=4 if colspan == 1 else 9,
-                height=1,
-                font=self.btn_font,
-                bg=bg_clr,
-                fg=fg_clr,
-                activebackground="#d1d1d6",
-                bd=0,
-                relief="flat",
-                command=lambda t=text: self.numpad_press(t),
+            button = FlatButton(
+                btn_frame, text, lambda t=text: self.numpad_press(t),
+                fill=fill, fg=fg, font=key_font,
+                width=136 if colspan == 2 else 64, height=48,
+                surface=THEME["bg"],
             )
-            b.grid(row=r, column=c, columnspan=colspan, padx=2, pady=2, sticky="ew")
+            button.grid(row=r, column=c, columnspan=colspan, padx=4, pady=4, sticky="nsew")
 
         for i in range(3):
             btn_frame.columnconfigure(i, weight=1)
+        for i in range(5):
+            btn_frame.rowconfigure(i, weight=1)
 
     def numpad_press(self, char):
         target = self.active_entry if self.active_entry is not None else self.height_entry
 
-        if char in "0123456789.": 
+        if char in "0123456789.":
             target.insert(tk.END, char)
         elif char == "C":
             target.delete(0, tk.END)
@@ -915,7 +1336,7 @@ class ArduinoPlotApp:
             target.delete(0, tk.END)
             target.insert(0, current[:-1])
         elif char == "OK":
-            if self._is_window_valid(self. numpad_window):
+            if self._is_window_valid(self.numpad_window):
                 self.numpad_window.destroy()
                 self.numpad_window = None
 
@@ -927,13 +1348,13 @@ class ArduinoPlotApp:
             self.settings_window.focus_force()
             return
 
-        self.settings_window = self._create_popup("MFCC Settings", 320, 280)
+        self.settings_window = self._create_popup("MFCC Settings", 360, 320)
 
         def on_settings_close():
             try:
                 if self.settings_window:
-                    self.settings_window. destroy()
-            except Exception: 
+                    self.settings_window.destroy()
+            except Exception:
                 pass
             self.settings_window = None
 
@@ -941,40 +1362,53 @@ class ArduinoPlotApp:
 
         params = self.realTimePlot.mfcc_params
 
-        main_frame = tk.Frame(self.settings_window, bg=self.bg_color)
-        main_frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+        main_frame = tk.Frame(self.settings_window, bg=THEME["bg"])
+        main_frame.pack(expand=True, fill=tk.BOTH, padx=16, pady=14)
 
-        tk.Label(main_frame, text="Sample Rate (Hz):", bg=self.bg_color, font=self.lbl_font).grid(row=0, column=0, padx=4, pady=4, sticky="e")
-        sr_entry = tk.Entry(main_frame, font=self.lbl_font, width=10)
-        sr_entry.grid(row=0, column=1, padx=4, pady=4, sticky="w")
-        sr_entry.insert(0, str(params["sr"]))
+        tk.Label(
+            main_frame, text="PARAMETER MFCC", bg=THEME["bg"], fg=THEME["text_faint"],
+            font=self.font_key,
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
-        tk.Label(main_frame, text="Frame length (ms):", bg=self.bg_color, font=self.lbl_font).grid(row=1, column=0, padx=4, pady=4, sticky="e")
-        frame_entry = tk.Entry(main_frame, font=self.lbl_font, width=10)
-        frame_entry.grid(row=1, column=1, padx=4, pady=4, sticky="w")
-        frame_entry.insert(0, str(params["frame_ms"]))
+        def add_row(row, caption, value):
+            tk.Label(
+                main_frame, text=caption, bg=THEME["bg"], fg=THEME["text_dim"],
+                font=self.font_small,
+            ).grid(row=row, column=0, padx=(0, 10), pady=5, sticky="w")
+            entry = tk.Entry(
+                main_frame, font=self.font_mono, width=12, bd=0, relief="flat",
+                bg=THEME["input"], fg=THEME["text"], insertbackground=THEME["ch_pleth"],
+                highlightthickness=1, highlightbackground=THEME["line"],
+                highlightcolor=THEME["ch_pleth"],
+            )
+            entry.grid(row=row, column=1, pady=5, sticky="ew", ipady=5)
+            entry.insert(0, str(value))
+            return entry
 
-        tk.Label(main_frame, text="Hop length (ms):", bg=self.bg_color, font=self.lbl_font).grid(row=2, column=0, padx=4, pady=4, sticky="e")
-        hop_entry = tk.Entry(main_frame, font=self.lbl_font, width=10)
-        hop_entry.grid(row=2, column=1, padx=4, pady=4, sticky="w")
-        hop_entry.insert(0, str(params["hop_ms"]))
+        sr_entry = add_row(1, "Sample rate (Hz)", params["sr"])
+        frame_entry = add_row(2, "Frame length (ms)", params["frame_ms"])
+        hop_entry = add_row(3, "Hop length (ms)", params["hop_ms"])
+        n_mfcc_entry = add_row(4, "Jumlah MFCC", params["n_mfcc"])
 
-        tk.Label(main_frame, text="Number of MFCC:", bg=self. bg_color, font=self. lbl_font).grid(row=3, column=0, padx=4, pady=4, sticky="e")
-        n_mfcc_entry = tk.Entry(main_frame, font=self.lbl_font, width=10)
-        n_mfcc_entry.grid(row=3, column=1, padx=4, pady=4, sticky="w")
-        n_mfcc_entry.insert(0, str(params["n_mfcc"]))
-
-        tk.Label(main_frame, text="Window type:", bg=self.bg_color, font=self.lbl_font).grid(row=4, column=0, padx=4, pady=4, sticky="e")
+        tk.Label(
+            main_frame, text="Window", bg=THEME["bg"], fg=THEME["text_dim"], font=self.font_small,
+        ).grid(row=5, column=0, padx=(0, 10), pady=5, sticky="w")
         window_var = tk.StringVar(value=params["window"])
-        window_menu = ttk.Combobox(main_frame, textvariable=window_var,
-                                   values=["hann", "hamming", "blackman", "boxcar"], state="readonly", width=10)
-        window_menu.grid(row=4, column=1, padx=4, pady=4, sticky="w")
+        ttk.Combobox(
+            main_frame, textvariable=window_var, style="Dark.TCombobox",
+            values=["hann", "hamming", "blackman", "boxcar"], state="readonly", width=11,
+        ).grid(row=5, column=1, pady=5, sticky="ew")
 
-        tk.Label(main_frame, text="MFCC mode:", bg=self.bg_color, font=self.lbl_font).grid(row=5, column=0, padx=4, pady=4, sticky="e")
+        tk.Label(
+            main_frame, text="Mode MFCC", bg=THEME["bg"], fg=THEME["text_dim"], font=self.font_small,
+        ).grid(row=6, column=0, padx=(0, 10), pady=5, sticky="w")
         mode_var = tk.StringVar(value=self.realTimePlot.mfcc_mode)
-        mode_menu = ttk.Combobox(main_frame, textvariable=mode_var,
-                                 values=["standard", "peak"], state="readonly", width=10)
-        mode_menu.grid(row=5, column=1, padx=4, pady=4, sticky="w")
+        ttk.Combobox(
+            main_frame, textvariable=mode_var, style="Dark.TCombobox",
+            values=["standard", "peak"], state="readonly", width=11,
+        ).grid(row=6, column=1, pady=5, sticky="ew")
+
+        main_frame.columnconfigure(1, weight=1)
 
         def on_save():
             try:
@@ -994,14 +1428,18 @@ class ArduinoPlotApp:
             except ValueError:
                 messagebox.showerror("Invalid Input", "Pastikan semua parameter diisi dengan benar.")
 
-        btn_frame = tk.Frame(main_frame, bg=self.bg_color)
-        btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
+        btn_frame = tk.Frame(main_frame, bg=THEME["bg"])
+        btn_frame.grid(row=7, column=0, columnspan=2, pady=(16, 0), sticky="e")
 
-        tk.Button(btn_frame, text="Save", command=on_save, font=self.btn_font,
-                  bg="#34c759", fg="#ffffff", bd=0, relief="flat", width=7).pack(side=tk.LEFT, padx=8)
+        FlatButton(
+            btn_frame, "Batal", on_settings_close, fill=THEME["raised"],
+            fg=THEME["text"], font=self.btn_font, width=84, surface=THEME["bg"],
+        ).pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(btn_frame, text="Cancel", command=on_settings_close, font=self.btn_font,
-                  bg="#ff3b30", fg="#ffffff", bd=0, relief="flat", width=7).pack(side=tk.LEFT, padx=8)
+        FlatButton(
+            btn_frame, "Simpan", on_save, fill=THEME["ch_pleth"],
+            fg="#04212b", font=self.btn_font, width=90, surface=THEME["bg"],
+        ).pack(side=tk.LEFT)
 
     # ==================== MEASUREMENT 300s ====================
 
@@ -1014,7 +1452,7 @@ class ArduinoPlotApp:
         if not self.logging_active:
             return
 
-        avg_si, avg_hrv, avg_mfcc, avg_vol, avg_adc = self. realTimePlot.compute_overall_means()
+        avg_si, avg_hrv, avg_mfcc, avg_vol, avg_adc = self.realTimePlot.compute_overall_means()
         self.mqtt.complete_measurement(
             si_mean=avg_si,
             hrv_mean=avg_hrv,
@@ -1025,7 +1463,7 @@ class ArduinoPlotApp:
 
         self.logging_active = False
         self.measurement_in_progress = False
-        self. enable_submit_button()
+        self.enable_submit_button()
 
         if not np.isnan(avg_si):
             self.update_si_label(avg_si)
@@ -1052,7 +1490,7 @@ class ArduinoPlotApp:
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         prefix = self.last_filename.strip() if self.last_filename else ""
-        prefix = "". join(c for c in prefix if c.isalnum() or c in ('_', '-'))
+        prefix = "".join(c for c in prefix if c.isalnum() or c in ('_', '-'))
 
         if prefix:
             filename = f"{prefix}_{now}.csv"
@@ -1076,7 +1514,7 @@ class ArduinoPlotApp:
 
         if avg_mfcc is None or not isinstance(avg_mfcc, (list, np.ndarray)) or len(avg_mfcc) != 13:
             mfcc_list = [""] * 13
-        else: 
+        else:
             mfcc_list = [self.format_float(float(x)) for x in avg_mfcc]
 
         row = [
@@ -1086,7 +1524,7 @@ class ArduinoPlotApp:
             self.format_float(self.last_height) if self.last_height is not None else "",
             self.format_float(self.last_weight) if self.last_weight is not None else "",
             self.format_float(self.last_bmi) if self.last_bmi is not None else "",
-            self. format_float(avg_si) if not np.isnan(avg_si) else "",
+            self.format_float(avg_si) if not np.isnan(avg_si) else "",
             self.format_float(avg_hrv) if not np.isnan(avg_hrv) else "",
             self.format_float(avg_vol) if not np.isnan(avg_vol) else "",
             str(int(round(avg_adc))) if not np.isnan(avg_adc) else "",
@@ -1097,8 +1535,9 @@ class ArduinoPlotApp:
             with open(filename, mode="w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(header)
-                writer. writerow(row)
+                writer.writerow(row)
             print(f"CSV saved:  {filename}")
+            self.show_hint(f"CSV tersimpan: {filename}")
         except Exception as e:
             messagebox.showerror("CSV Error", str(e))
 
@@ -1115,9 +1554,7 @@ class ArduinoPlotApp:
             height_str = clean_number_input(self.height_entry.get())
             weight_str = clean_number_input(self.weight_entry.get())
 
-            print(f"DEBUG - Age: '{age_str}', Height: '{height_str}', Weight: '{weight_str}'")
-
-            if not age_str or not height_str or not weight_str: 
+            if not age_str or not height_str or not weight_str:
                 raise ValueError("Empty input")
 
             age_yr = float(age_str)
@@ -1155,9 +1592,12 @@ class ArduinoPlotApp:
 
         except RuntimeError as error:
             messagebox.showerror("MQTT Error", str(error))
-        except ValueError as e: 
-            print(f"DEBUG - ValueError: {e}")
-            messagebox.showerror("Invalid Input", "Masukkan umur, tinggi, berat yang valid.\n\nPastikan:\n- Semua field terisi\n- Hanya angka dan titik desimal\n- Nilai lebih dari 0")
+        except ValueError:
+            messagebox.showerror(
+                "Invalid Input",
+                "Masukkan umur, tinggi, berat yang valid.\n\nPastikan:\n"
+                "- Semua field terisi\n- Hanya angka dan titik desimal\n- Nilai lebih dari 0",
+            )
 
     # ==================== COUNTDOWN WINDOW ====================
 
@@ -1165,44 +1605,43 @@ class ArduinoPlotApp:
         if self.countdown_after_id is not None:
             try:
                 self.root.after_cancel(self.countdown_after_id)
-            except: 
+            except Exception:
                 pass
             self.countdown_after_id = None
 
         self.countdown_value = 300
 
-        if self._is_window_valid(self. averages_window):
+        if self._is_window_valid(self.averages_window):
             try:
                 if self.countdown_label:
-                    self.countdown_label.config(text="300", fg="#007aff")
-                if self.avg_si_label:
-                    self.avg_si_label. config(text="Average SI:  Measuring...")
-                if self.avg_hrv_label:
-                    self.avg_hrv_label.config(text="Average HRV: Measuring...")
-                if self.avg_mfcc_label:
-                    self.avg_mfcc_label.config(text="Average MFCC: Measuring...")
-                if self.avg_vol_label:
-                    self.avg_vol_label.config(text="Average Voltage: Measuring...")
-                if self.avg_adc_label:
-                    self.avg_adc_label.config(text="Average ADC: Measuring...")
+                    self.countdown_label.config(text="300", fg=THEME["rec"])
+                for label, caption in (
+                    (self.avg_si_label, "SI"),
+                    (self.avg_hrv_label, "HRV"),
+                    (self.avg_vol_label, "VOLTASE"),
+                    (self.avg_adc_label, "ADC"),
+                    (self.avg_mfcc_label, "MFCC"),
+                ):
+                    if label:
+                        label.config(text="mengukur…")
                 self.averages_window.lift()
             except tk.TclError:
                 self.averages_window = None
 
-        if not self._is_window_valid(self. averages_window):
-            self.averages_window = self._create_popup("Measurement - 300 Seconds", 400, 320)
+        if not self._is_window_valid(self.averages_window):
+            self.averages_window = self._create_popup("Pengukuran 300 detik", 420, 380)
 
             def on_averages_close():
                 if self.countdown_after_id is not None:
                     try:
-                        self.root. after_cancel(self.countdown_after_id)
-                    except:
+                        self.root.after_cancel(self.countdown_after_id)
+                    except Exception:
                         pass
                     self.countdown_after_id = None
 
                 self.mqtt.cancel_measurement("measurement_window_closed")
                 self.logging_active = False
-                self. measurement_in_progress = False
+                self.measurement_in_progress = False
                 self.enable_submit_button()
                 try:
                     if self.averages_window:
@@ -1211,7 +1650,8 @@ class ArduinoPlotApp:
                     pass
                 self.averages_window = None
                 self.countdown_label = None
-                self. avg_si_label = None
+                self.countdown_bar = None
+                self.avg_si_label = None
                 self.avg_hrv_label = None
                 self.avg_mfcc_label = None
                 self.avg_vol_label = None
@@ -1219,46 +1659,58 @@ class ArduinoPlotApp:
 
             self.averages_window.protocol("WM_DELETE_WINDOW", on_averages_close)
 
-            main_frame = tk.Frame(self.averages_window, bg=self.bg_color)
-            main_frame.pack(expand=True, fill=tk.BOTH, padx=15, pady=10)
+            main_frame = tk.Frame(self.averages_window, bg=THEME["bg"])
+            main_frame.pack(expand=True, fill=tk.BOTH, padx=18, pady=16)
+
+            tk.Label(
+                main_frame, text="MEREKAM", bg=THEME["bg"], fg=THEME["rec"], font=self.font_key,
+            ).pack(anchor="w")
 
             self.countdown_label = tk.Label(
-                main_frame, text="300",
-                font=("Helvetica", 32, "bold"),
-                bg=self.bg_color, fg="#007aff"
+                main_frame, text="300", font=self.font_countdown,
+                bg=THEME["bg"], fg=THEME["rec"],
             )
-            self.countdown_label.pack(pady=8)
+            self.countdown_label.pack(anchor="w")
 
-            tk.Label(main_frame, text="seconds remaining",
-                     font=self.lbl_font, bg=self.bg_color, fg="#666666").pack()
+            tk.Label(
+                main_frame, text="detik tersisa", font=self.font_small,
+                bg=THEME["bg"], fg=THEME["text_faint"],
+            ).pack(anchor="w", pady=(0, 10))
 
-            ttk.Separator(main_frame, orient="horizontal").pack(fill=tk.X, pady=8)
+            # Bar kemajuan sederhana; Tkinter tidak punya progress ringan bertema.
+            self.countdown_bar = tk.Canvas(
+                main_frame, height=4, bg=THEME["raised"], highlightthickness=0, bd=0,
+            )
+            self.countdown_bar.pack(fill=tk.X, pady=(0, 14))
+            self.countdown_bar_fill = self.countdown_bar.create_rectangle(
+                0, 0, 0, 4, fill=THEME["rec"], outline="",
+            )
 
-            self.avg_si_label = tk.Label(main_frame, text="Average SI:  Measuring...",
-                                         font=self. lbl_font, bg=self.bg_color)
-            self.avg_si_label.pack(pady=1, anchor="w")
+            def add_avg_row(caption, accent):
+                row = tk.Frame(main_frame, bg=THEME["bg"])
+                row.pack(fill=tk.X, pady=2)
+                tk.Frame(row, bg=accent, width=3, height=16).pack(side=tk.LEFT, padx=(0, 8))
+                tk.Label(
+                    row, text=caption, bg=THEME["bg"], fg=THEME["text_faint"],
+                    font=self.font_key, width=9, anchor="w",
+                ).pack(side=tk.LEFT)
+                value = tk.Label(
+                    row, text="mengukur…", bg=THEME["bg"], fg=THEME["text_dim"],
+                    font=self.font_mono, anchor="w", justify="left", wraplength=280,
+                )
+                value.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                return value
 
-            self.avg_hrv_label = tk. Label(main_frame, text="Average HRV: Measuring.. .",
-                                          font=self.lbl_font, bg=self.bg_color)
-            self.avg_hrv_label.pack(pady=1, anchor="w")
+            self.avg_si_label = add_avg_row("SI", THEME["ch_si"])
+            self.avg_hrv_label = add_avg_row("HRV", THEME["ch_hrv"])
+            self.avg_vol_label = add_avg_row("VOLTASE", THEME["ch_volt"])
+            self.avg_adc_label = add_avg_row("ADC", THEME["ch_adc"])
+            self.avg_mfcc_label = add_avg_row("MFCC", THEME["ch_mfcc"])
 
-            self.avg_vol_label = tk.Label(main_frame, text="Average Voltage: Measuring...",
-                                          font=self.lbl_font, bg=self.bg_color)
-            self.avg_vol_label.pack(pady=1, anchor="w")
-
-            self.avg_adc_label = tk.Label(main_frame, text="Average ADC:  Measuring...",
-                                          font=self.lbl_font, bg=self.bg_color)
-            self.avg_adc_label.pack(pady=1, anchor="w")
-
-            self.avg_mfcc_label = tk.Label(main_frame, text="Average MFCC:  Measuring...",
-                                           font=self.lbl_font, bg=self.bg_color, wraplength=360, justify="left")
-            self.avg_mfcc_label. pack(pady=1, anchor="w")
-
-            tk.Button(
-                main_frame, text="Stop & Close",
-                command=on_averages_close, font=self.btn_font,
-                bg="#ff3b30", fg="#ffffff", bd=0, relief="flat", width=10
-            ).pack(pady=10)
+            FlatButton(
+                main_frame, "Stop & Tutup", on_averages_close, fill=THEME["rec"],
+                fg="#2b0308", font=self.btn_font, width=130, surface=THEME["bg"],
+            ).pack(anchor="e", pady=(16, 0))
 
         self.countdown_tick()
 
@@ -1266,15 +1718,21 @@ class ArduinoPlotApp:
         if not self.logging_active:
             return
 
-        if self.countdown_label and self._is_window_valid(self. averages_window):
+        if self.countdown_label and self._is_window_valid(self.averages_window):
             try:
                 if self.countdown_value > 0:
-                    self.countdown_label.config(text=str(self.countdown_value), fg="#007aff")
+                    self.countdown_label.config(text=str(self.countdown_value), fg=THEME["rec"])
+                    if self.countdown_bar is not None:
+                        width = self.countdown_bar.winfo_width()
+                        ratio = 1.0 - (self.countdown_value / 300.0)
+                        self.countdown_bar.coords(
+                            self.countdown_bar_fill, 0, 0, width * ratio, 4
+                        )
                     self.countdown_value -= 1
-                    self.countdown_after_id = self.root. after(1000, self.countdown_tick)
+                    self.countdown_after_id = self.root.after(1000, self.countdown_tick)
                 else:
-                    self.countdown_label.config(text="Done!", fg="#34c759")
-                    self. countdown_after_id = None
+                    self.countdown_label.config(text="Selesai", fg=THEME["ok"])
+                    self.countdown_after_id = None
                     self.root.after(500, self.finish_logging)
             except tk.TclError:
                 pass
@@ -1287,27 +1745,27 @@ class ArduinoPlotApp:
                 return
 
             if self.avg_si_label:
-                text = f"Average SI: {avg_si:.4f} m/s" if not np.isnan(avg_si) else "Average SI: N/A"
-                self.avg_si_label. config(text=text)
+                text = f"{avg_si:.4f} m/s" if not np.isnan(avg_si) else "tidak tersedia"
+                self.avg_si_label.config(text=text)
 
             if self.avg_hrv_label:
-                text = f"Average HRV: {avg_hrv:.2f} ms" if not np.isnan(avg_hrv) else "Average HRV: N/A"
+                text = f"{avg_hrv:.2f} ms" if not np.isnan(avg_hrv) else "tidak tersedia"
                 self.avg_hrv_label.config(text=text)
 
             if self.avg_vol_label:
-                text = f"Average Voltage: {avg_vol:.4f} V" if not np. isnan(avg_vol) else "Average Voltage: N/A"
+                text = f"{avg_vol:.4f} V" if not np.isnan(avg_vol) else "tidak tersedia"
                 self.avg_vol_label.config(text=text)
 
             if self.avg_adc_label:
-                text = f"Average ADC: {int(round(avg_adc))}" if not np.isnan(avg_adc) else "Average ADC: N/A"
+                text = f"{int(round(avg_adc))}" if not np.isnan(avg_adc) else "tidak tersedia"
                 self.avg_adc_label.config(text=text)
 
             if self.avg_mfcc_label:
                 if avg_mfcc is not None and not isinstance(avg_mfcc, str):
                     mfccs_str = ", ".join(f"{m:.2f}" for m in avg_mfcc)
-                    self.avg_mfcc_label.config(text=f"Average MFCC: [{mfccs_str}]")
+                    self.avg_mfcc_label.config(text=f"[{mfccs_str}]")
                 else:
-                    self.avg_mfcc_label.config(text="Average MFCC: N/A")
+                    self.avg_mfcc_label.config(text="tidak tersedia")
         except tk.TclError:
             pass
 
@@ -1316,21 +1774,30 @@ class ArduinoPlotApp:
     def update_si_label(self, si):
         self.latest_si = self.metric_number(si)
         try:
-            self.si_label.config(text=f"SI: {si}" if isinstance(si, str) else f"SI: {si:.4f} m/s")
+            if isinstance(si, str):
+                self.tile_si.set_value("—", active=False)
+            else:
+                self.tile_si.set_value(f"{si:.4f}")
         except tk.TclError:
             pass
 
     def update_hrv_label(self, hrv):
         self.latest_hrv = self.metric_number(hrv)
         try:
-            self.hrv_label. config(text=f"HRV: {hrv}" if isinstance(hrv, str) else f"HRV: {hrv:.2f} ms")
+            if isinstance(hrv, str):
+                self.tile_hrv.set_value("—", active=False)
+            else:
+                self.tile_hrv.set_value(f"{hrv:.2f}")
         except tk.TclError:
             pass
 
     def update_bmi_label(self, bmi):
         self.latest_bmi = self.metric_number(bmi)
         try:
-            self.bmi_label.config(text=f"BMI: {bmi}" if isinstance(bmi, str) else f"BMI: {bmi:.2f}")
+            if isinstance(bmi, str):
+                self.tile_bmi.set_value("—", active=False)
+            else:
+                self.tile_bmi.set_value(f"{bmi:.2f}")
         except tk.TclError:
             pass
 
@@ -1338,14 +1805,20 @@ class ArduinoPlotApp:
         number = self.metric_number(age)
         self.latest_age = int(round(number)) if number is not None else None
         try:
-            self.age_value_label.config(text=f"Age: {age}" if isinstance(age, str) else f"Age: {int(age)}")
-        except tk.TclError:
+            if isinstance(age, str):
+                self.tile_age.set_value("—", active=False)
+            else:
+                self.tile_age.set_value(f"{int(age)}")
+        except (tk.TclError, TypeError, ValueError):
             pass
 
     def update_vol_label(self, vol):
         self.latest_voltage = self.metric_number(vol)
         try:
-            self.vol_label.config(text=f"Vol: {vol}" if isinstance(vol, str) else f"Vol: {vol:.2f} V")
+            if isinstance(vol, str):
+                self.tile_volt.set_value("—", active=False)
+            else:
+                self.tile_volt.set_value(f"{vol:.2f}")
         except tk.TclError:
             pass
 
@@ -1359,7 +1832,7 @@ class ArduinoPlotApp:
         try:
             adc_val = int(round(float(adc)))
             adc_val = max(0, min(1023, adc_val))
-            self.adc_label.config(text=f"ADC:  {adc_val}")
+            self.tile_adc.set_value(str(adc_val))
         except Exception:
             pass
 
@@ -1378,11 +1851,16 @@ class ArduinoPlotApp:
                 self.latest_mfcc = None
         try:
             if isinstance(mfccs, str):
-                self.mfcc_label.config(text=f"MFCC: {mfccs}")
+                self.mfcc_strip.set_message(mfccs)
+                self.mfcc_meta.config(text="menunggu data")
             else:
-                mfccs_str = ", ". join(f"{m:.2f}" for m in mfccs)
-                self.mfcc_label.config(text=f"MFCC: {mfccs_str}")
-        except tk.TclError:
+                values = [float(value) for value in mfccs]
+                self.mfcc_strip.set_values(values)
+                peak = max((abs(value) for value in values), default=0.0)
+                self.mfcc_meta.config(
+                    text=f"{len(values)} koefisien · puncak {peak:.1f}"
+                )
+        except (tk.TclError, TypeError, ValueError):
             pass
 
     # ==================== CLOSE ====================
@@ -1396,13 +1874,13 @@ class ArduinoPlotApp:
             self.metrics_after_id = None
 
         if self.countdown_after_id is not None:
-            try: 
+            try:
                 self.root.after_cancel(self.countdown_after_id)
-            except:
+            except Exception:
                 pass
 
         self.logging_active = False
-        self. measurement_in_progress = False
+        self.measurement_in_progress = False
         self.stop_serial()
 
         for window in [self.numpad_window, self.settings_window, self.averages_window]:
@@ -1419,6 +1897,6 @@ class ArduinoPlotApp:
 
 
 if __name__ == "__main__":
-    root = tk. Tk()
+    root = tk.Tk()
     app = ArduinoPlotApp(root)
     app.run()

@@ -3,111 +3,158 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PPG Realtime Dashboard</title>
+    <title>PPG Monitor — Realtime</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans+Condensed:wght@600;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main>
-      <header>
-        <div>
-          <p class="eyebrow">GLUCOMETER / PPG</p>
-          <h1>Realtime Monitor</h1>
-        </div>
-        <span id="connection-status" class="badge offline">Disconnected</span>
-      </header>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">PPG Monitor</span>
+      </div>
 
-      <section class="panel connection-panel">
-        <label>
-          Broker host
-          <input id="host" autocomplete="off" placeholder="mqtt-glucometer.sivia.id">
-        </label>
-        <label>
-          WebSocket port
-          <input id="port" type="number" value="443">
-        </label>
-        <label>
-          Username
-          <input id="username" value="dashboard" autocomplete="username">
-        </label>
-        <label>
-          Password
+      <div class="topbar-chips">
+        <span class="chip">
+          <span class="chip-key">Alat</span>
+          <span class="chip-val" id="chip-device">—</span>
+        </span>
+        <span class="chip" id="chip-mode-wrap" data-mode="idle">
+          <span class="chip-key">Mode</span>
+          <span class="chip-val" id="chip-mode">idle</span>
+        </span>
+      </div>
+
+      <div class="topbar-lamps">
+        <span class="lamp" id="lamp-broker" data-state="off">
+          <i aria-hidden="true"></i>Broker <b id="lamp-broker-text">terputus</b>
+        </span>
+        <span class="lamp" id="lamp-device" data-state="unknown">
+          <i aria-hidden="true"></i>Alat <b id="lamp-device-text">belum diketahui</b>
+        </span>
+        <button type="button" class="ghost-btn" id="panel-toggle" aria-expanded="true" aria-controls="connection">
+          Koneksi
+        </button>
+      </div>
+    </header>
+
+    <section class="connection" id="connection">
+      <form class="conn-form" id="conn-form" autocomplete="off">
+        <p class="field">
+          <label for="account-role">Tipe akun</label>
+          <select id="account-role">
+            <option value="device">Akun alat — pantau alat sendiri</option>
+            <option value="dashboard">Akun dashboard — pantau semua alat</option>
+          </select>
+        </p>
+        <p class="field field-wide">
+          <label for="host">Broker host</label>
+          <input id="host" spellcheck="false">
+        </p>
+        <p class="field field-narrow">
+          <label for="port">Port</label>
+          <input id="port" inputmode="numeric" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="device-id">Device ID</label>
+          <input id="device-id" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="username">Username</label>
+          <input id="username" autocomplete="username" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="password">Password</label>
           <input id="password" type="password" autocomplete="current-password">
-        </label>
-        <label>
-          Device ID
-          <input id="device-id" value="+" placeholder="PPG-ABC12345 atau +">
-        </label>
-        <button id="connect-button">Connect</button>
-      </section>
+        </p>
+        <button class="primary-btn" id="connect-button" type="submit">Hubungkan</button>
+      </form>
+      <p class="conn-hint" id="conn-hint"></p>
+    </section>
 
-      <section class="stats">
-        <article class="panel">
-          <span>Device</span>
-          <strong id="current-device">-</strong>
-        </article>
-        <article class="panel">
-          <span>Mode</span>
-          <strong id="current-mode">-</strong>
-        </article>
-        <article class="panel">
-          <span>Measurement</span>
-          <strong id="measurement-id">-</strong>
-        </article>
-        <article class="panel">
-          <span>SI</span>
-          <strong id="realtime-si">-</strong>
-        </article>
-        <article class="panel">
-          <span>HRV</span>
-          <strong id="realtime-hrv">-</strong>
-        </article>
-        <article class="panel">
-          <span>BMI</span>
-          <strong id="realtime-bmi">-</strong>
-        </article>
-        <article class="panel">
-          <span>Age</span>
-          <strong id="realtime-age">-</strong>
-        </article>
-        <article class="panel">
-          <span>Voltage</span>
-          <strong id="realtime-voltage">-</strong>
-        </article>
-        <article class="panel">
-          <span>ADC</span>
-          <strong id="last-adc">-</strong>
-        </article>
-      </section>
+    <div class="alert" id="alert" hidden>
+      <span class="alert-mark" aria-hidden="true"></span>
+      <span class="alert-text">
+        <b id="alert-title"></b>
+        <span id="alert-body"></span>
+      </span>
+    </div>
 
-      <section class="panel metrics-panel">
-        <div class="chart-heading">
-          <h2>MFCC realtime</h2>
-          <span>latest coefficients</span>
-        </div>
-        <pre id="realtime-mfcc">[]</pre>
-      </section>
+    <section class="session" id="session" data-state="idle">
+      <span class="session-dot" aria-hidden="true"></span>
+      <span class="session-label" id="session-label">Menunggu alat</span>
+      <code class="session-id" id="session-id">—</code>
+      <span class="session-timer" id="session-timer"></span>
+      <span class="session-track"><i id="session-bar"></i></span>
+    </section>
 
-      <section class="panel chart-panel">
-        <div class="chart-heading">
-          <div>
-            <p class="eyebrow">RAW ADC</p>
-            <h2>PPG waveform</h2>
+    <main class="stage">
+      <div class="stage-main">
+        <section class="panel trace-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Pleth · raw ADC</p>
+              <h2>Waveform</h2>
+            </div>
+            <div class="trace-meta">
+              <span id="trace-rate">— Hz</span>
+              <span id="trace-seq">seq —</span>
+              <span id="sample-count">0 sampel</span>
+            </div>
           </div>
-          <span id="sample-count">0 samples</span>
-        </div>
-        <canvas id="chart"></canvas>
-      </section>
+          <canvas id="chart" role="img" aria-label="Grafik waveform PPG realtime"></canvas>
+        </section>
 
-      <section class="panel">
-        <div class="chart-heading">
-          <h2>Hasil terakhir</h2>
-          <span id="result-status">Belum ada</span>
-        </div>
-        <pre id="last-result">{}</pre>
-      </section>
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Cepstral</p>
+              <h2>MFCC</h2>
+            </div>
+            <span class="panel-note" id="mfcc-meta">menunggu data</span>
+          </div>
+          <div class="mfcc" id="mfcc-bars"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Diagnostik</p>
+              <h2>Langganan topic</h2>
+            </div>
+            <span class="panel-note" id="link-meta">belum terhubung</span>
+          </div>
+          <div class="link-scroll">
+            <table class="link">
+              <thead>
+                <tr><th>Topic</th><th>Izin broker</th><th>Pesan</th><th>Terakhir</th></tr>
+              </thead>
+              <tbody id="link-rows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Sesi</p>
+              <h2>Hasil terakhir</h2>
+            </div>
+            <span class="tag" id="result-status">belum ada</span>
+          </div>
+          <dl class="result" id="result-grid"></dl>
+        </section>
+      </div>
+
+      <aside class="vitals" id="vitals"></aside>
     </main>
 
-    <script src="https://unpkg.com/mqtt@5.15.2/dist/mqtt.min.js"></script>
+    <script
+      src="https://unpkg.com/mqtt@5.15.2/dist/mqtt.min.js"
+      integrity="sha384-haZiwxTLortiFcYMBEEE1+8ayC+o18YtuwHZv+4WQHoPaLzRjwOV6h7Vva5iLSCZ"
+      crossorigin="anonymous"></script>
     <script src="app.js"></script>
   </body>
 </html>
