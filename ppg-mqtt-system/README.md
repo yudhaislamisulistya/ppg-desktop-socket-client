@@ -89,7 +89,7 @@ Edit `.env`:
 COMPOSE_PROJECT_NAME=ppg-mqtt-system
 FRONTEND_PORT=9100
 REGISTRATION_BIND_IP=202.141.15.3
-REGISTRATION_HOST_PORT=8080
+REGISTRATION_HOST_PORT=9080
 ALLOW_DEVICE_REGISTRATION=true
 STORAGE_PASSWORD=password-storage-yang-kuat
 POSTGRES_DB=ppg
@@ -249,10 +249,10 @@ http:
     mqtt-glucometer-register-service:
       loadBalancer:
         servers:
-              - url: 'http://202.141.15.3:8080'
+          - url: 'http://202.141.15.3:9080'
 ```
 
-Port `8080` pada `202.141.15.3` hanya perlu dapat diakses oleh server Traefik
+Port `9080` pada `202.141.15.3` hanya perlu dapat diakses oleh server Traefik
 `202.141.15.5`; jangan diarahkan langsung dari internet. Router WSS yang
 meneruskan domain ke `202.141.15.3:9001` tetap dipertahankan.
 
