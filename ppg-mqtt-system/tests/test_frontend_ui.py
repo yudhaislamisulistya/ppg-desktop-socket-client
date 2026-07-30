@@ -18,10 +18,10 @@ class FrontendUiContractTest(unittest.TestCase):
         self.assertIn('id="theme-toggle"', html)
         self.assertIn('aria-pressed="false"', html)
         self.assertIn("<details", html)
-        self.assertIn('id="mfcc-values"', html)
+        self.assertIn('data-role="mfcc-values"', html)
         self.assertIn(':root[data-theme="light"]', css)
         self.assertIn("function applyTheme(", javascript)
-        self.assertIn("function renderMfccDetails(", javascript)
+        self.assertIn("renderMfccDetails(values)", javascript)
         self.assertIn('value.toFixed(6)', javascript)
 
     def test_waveform_has_accessible_fixed_axes(self):
@@ -30,14 +30,12 @@ class FrontendUiContractTest(unittest.TestCase):
         javascript = (FRONTEND / "app.js").read_text(encoding="utf-8")
         waveform = (FRONTEND / "waveform.js").read_text(encoding="utf-8")
 
-        self.assertIn('id="chart-x-label"', html)
+        self.assertIn("chart-axis-x", html)
         self.assertIn("Samples", html)
-        self.assertIn('id="chart-y-label"', html)
+        self.assertIn("chart-axis-y", html)
         self.assertIn("Amplitude", html)
-        self.assertIn(
-            'aria-describedby="chart-x-label chart-y-label"',
-            html,
-        )
+        self.assertIn('data-role="chart"', html)
+        self.assertIn('aria-label="Grafik waveform PPG realtime"', html)
         self.assertIn(".chart-frame", css)
         self.assertIn("writing-mode: vertical-rl", css)
         self.assertIn("const TRACE_CAPACITY = 1000;", javascript)
@@ -56,6 +54,25 @@ class FrontendUiContractTest(unittest.TestCase):
         self.assertIn('<script src="waveform.js"></script>', html)
         self.assertIn("const signal = normalizeWaveform(trace);", javascript)
         self.assertIn("function normalizeWaveform(samples)", waveform)
+
+    def test_multi_device_dashboards_are_dynamic_and_bounded(self):
+        html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+        css = (FRONTEND / "styles.css").read_text(encoding="utf-8")
+        javascript = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="device-dashboard-template"', html)
+        self.assertIn('id="dashboard-grid"', html)
+        self.assertIn('data-role="remove"', html)
+        self.assertIn("const MAX_DASHBOARDS = 6;", javascript)
+        self.assertIn("const dashboards = new Map();", javascript)
+        self.assertIn("class DeviceDashboard", javascript)
+        self.assertIn("dashboards.has(deviceId)", javascript)
+        self.assertIn("dashboards.size >= MAX_DASHBOARDS", javascript)
+        self.assertIn("function removeDashboard(deviceId)", javascript)
+        self.assertIn("dashboard-${randomId}", javascript)
+        self.assertIn(".dashboard-grid", css)
+        self.assertIn(".device-dashboard", css)
+        self.assertIn(".device-vitals", css)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js diperlukan untuk uji waveform")
     def test_frontend_waveform_matches_desktop_filter(self):

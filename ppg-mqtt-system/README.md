@@ -279,14 +279,15 @@ http://IP_SERVER:9100
 
 Jika `FRONTEND_PORT` diubah pada `.env`, gunakan port tersebut pada URL.
 
-Form koneksi punya pemilih **Tipe akun** dengan dua mode:
+Form koneksi dapat menambahkan hingga enam perangkat sekaligus. Setiap Device
+ID membuat koneksi MQTT dan panel terpisah berisi waveform, enam vital, status
+sesi, MFCC, hasil terakhir, dan diagnostik topic. Device ID yang sama tidak
+dapat ditambahkan dua kali dan setiap panel memiliki tombol `Putuskan`.
 
-| Tipe akun | Username | Device ID | Cakupan |
-|---|---|---|---|
-| Akun alat | `mqtt_username` dari `mqtt_config.json` | `device_id` alat | Hanya alat itu sendiri |
-| Akun dashboard | `dashboard` | `+` atau satu ID | Semua alat |
-
-Nilai awal form diambil dari `ppg-desktop/mqtt_config.example.json`, yaitu host `mqtt-glucometer.sivia.id`, port `443`, dan device `PPG-ABC12345`. Password tidak pernah diisi otomatis dan tidak disimpan oleh halaman.
+Gunakan `device_id`, `mqtt_username`, dan `mqtt_password` dari alat yang ingin
+dipantau. Password tidak pernah diisi otomatis atau disimpan oleh halaman.
+Batas sementara dapat dinaikkan melalui konstanta `MAX_DASHBOARDS` pada
+`frontend/app.js`; struktur HTML tidak perlu digandakan.
 
 Panel **Langganan topic** menampilkan hasil `SUBACK` per topic beserta jumlah pesan dan waktu pesan terakhir. Kalau broker menolak langganan, kolom izin akan berisi `DITOLAK` dan halaman menampilkan perintah perbaikannya. Ini membedakan tiga kondisi yang sebelumnya terlihat sama: broker menolak ACL, alat sedang mati, atau Device ID salah ketik.
 

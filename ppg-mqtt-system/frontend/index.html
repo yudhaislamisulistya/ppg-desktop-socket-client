@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PPG Monitor — Realtime</title>
+    <title>PPG Monitor — Multi Device</title>
     <link rel="icon" href="data:,">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,33 +16,27 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-copy">
           <span class="brand-name">PPG Monitor</span>
-          <span class="brand-subtitle">Realtime patient dashboard</span>
+          <span class="brand-subtitle">Multi-device realtime dashboard</span>
         </span>
       </div>
 
       <div class="topbar-chips">
         <span class="chip">
-          <span class="chip-key">Alat</span>
-          <span class="chip-val" id="chip-device">—</span>
+          <span class="chip-key">Dashboard</span>
+          <span class="chip-val" id="chip-device">0 / 6</span>
         </span>
         <span class="chip" id="chip-mode-wrap" data-mode="idle">
-          <span class="chip-key">Mode</span>
-          <span class="chip-val" id="chip-mode">idle</span>
+          <span class="chip-key">Terhubung</span>
+          <span class="chip-val" id="chip-mode">0</span>
         </span>
       </div>
 
       <div class="topbar-lamps">
         <span class="lamp" id="lamp-broker" data-state="off">
-          <i aria-hidden="true"></i>Broker <b id="lamp-broker-text">terputus</b>
-        </span>
-        <span class="lamp" id="lamp-device" data-state="unknown">
-          <i aria-hidden="true"></i>Alat <b id="lamp-device-text">belum diketahui</b>
+          <i aria-hidden="true"></i>Broker <b id="lamp-broker-text">belum ada koneksi</b>
         </span>
         <button type="button" class="ghost-btn" id="theme-toggle" aria-pressed="false">
           Tema: Gelap
-        </button>
-        <button type="button" class="ghost-btn" id="panel-toggle" aria-expanded="true" aria-controls="connection">
-          Koneksi
         </button>
       </div>
     </header>
@@ -51,14 +45,14 @@
       <div class="connection-head">
         <div>
           <p class="eyebrow">Koneksi MQTT</p>
-          <h1>Hubungkan perangkat</h1>
+          <h1>Tambah perangkat</h1>
         </div>
-        <p>Masukkan kredensial perangkat untuk mulai memantau data PPG secara realtime.</p>
+        <p>Setiap perangkat memiliki koneksi dan panel realtime sendiri.</p>
       </div>
       <form class="conn-form" id="conn-form" autocomplete="off">
         <p class="field">
           <label for="device-id">Device ID</label>
-          <input id="device-id" placeholder="Contoh: PPG-ABC12345" required autocapitalize="none" spellcheck="false">
+          <input id="device-id" placeholder="Contoh: PPG-001" required autocapitalize="none" spellcheck="false">
         </p>
         <p class="field">
           <label for="username">Username</label>
@@ -68,11 +62,12 @@
           <label for="password">Password</label>
           <input id="password" type="password" placeholder="Password MQTT" required autocomplete="current-password">
         </p>
-        <button class="primary-btn" id="connect-button" type="submit">Hubungkan</button>
+        <button class="primary-btn" id="connect-button" type="submit">Tambah dashboard</button>
       </form>
       <p class="conn-hint">
-        Broker tersambung otomatis. Gunakan Device ID perangkat, atau <code>+</code>
-        jika akun dashboard diizinkan memantau semua perangkat.
+        Maksimal <strong>6 dashboard aktif</strong>. Device ID yang sama tidak
+        dapat ditambahkan dua kali. Batas dapat dinaikkan kemudian tanpa
+        mengubah struktur halaman.
       </p>
     </section>
 
@@ -84,92 +79,129 @@
       </span>
     </div>
 
-    <section class="session" id="session" data-state="idle">
-      <span class="session-dot" aria-hidden="true"></span>
-      <span class="session-label" id="session-label">Menunggu data</span>
-      <code class="session-id" id="session-id">—</code>
-      <span class="session-timer" id="session-timer"></span>
-      <span class="session-track"><i id="session-bar"></i></span>
-    </section>
-
-    <main class="stage">
-      <div class="stage-main">
-        <section class="panel trace-panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">Pleth · raw ADC</p>
-              <h2>Waveform</h2>
-            </div>
-            <div class="trace-meta">
-              <span id="trace-rate">— Hz</span>
-              <span id="trace-seq">seq —</span>
-              <span id="sample-count">0 sampel</span>
-            </div>
-          </div>
-          <div class="chart-frame">
-            <span class="chart-axis chart-axis-y" id="chart-y-label">
-              Amplitude
-            </span>
-            <canvas
-              id="chart"
-              role="img"
-              aria-label="Grafik waveform PPG realtime, Samples 0 sampai 1000 dan Amplitude -200 sampai 200"
-              aria-describedby="chart-x-label chart-y-label"></canvas>
-            <span class="chart-axis chart-axis-x" id="chart-x-label">
-              Samples
-            </span>
-          </div>
-        </section>
-
-        <section class="panel mfcc-panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">Cepstral</p>
-              <h2>MFCC</h2>
-            </div>
-            <span class="panel-note" id="mfcc-meta">menunggu data</span>
-          </div>
-          <div class="mfcc" id="mfcc-bars"></div>
-          <details class="mfcc-details">
-            <summary>Detail koefisien MFCC</summary>
-            <dl class="mfcc-values" id="mfcc-values">
-              <div class="mfcc-values-empty">Belum ada nilai koefisien.</div>
-            </dl>
-          </details>
-        </section>
-
-        <section class="panel diagnostic-panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">Diagnostik</p>
-              <h2>Langganan topic</h2>
-            </div>
-            <span class="panel-note" id="link-meta">belum terhubung</span>
-          </div>
-          <div class="link-scroll">
-            <table class="link">
-              <thead>
-                <tr><th>Topic</th><th>Izin broker</th><th>Pesan</th><th>Terakhir</th></tr>
-              </thead>
-              <tbody id="link-rows"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="panel result-panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">Sesi</p>
-              <h2>Hasil terakhir</h2>
-            </div>
-            <span class="tag" id="result-status">belum ada</span>
-          </div>
-          <dl class="result" id="result-grid"></dl>
-        </section>
-      </div>
-
-      <aside class="vitals" id="vitals"></aside>
+    <main class="dashboard-grid" id="dashboard-grid">
+      <section class="dashboard-empty" id="dashboard-empty">
+        <span class="dashboard-empty-mark" aria-hidden="true"></span>
+        <h2>Belum ada perangkat</h2>
+        <p>Masukkan Device ID, username, dan password untuk membuat dashboard pertama.</p>
+      </section>
     </main>
+
+    <template id="device-dashboard-template">
+      <article class="device-dashboard" data-state="connecting">
+        <header class="device-head">
+          <div>
+            <p class="eyebrow">Perangkat PPG</p>
+            <h2 data-role="device-name">—</h2>
+          </div>
+          <div class="device-indicators">
+            <span class="lamp" data-role="broker-lamp" data-state="wait">
+              <i aria-hidden="true"></i>Broker <b data-role="broker-text">menghubungkan…</b>
+            </span>
+            <span class="lamp" data-role="device-lamp" data-state="unknown">
+              <i aria-hidden="true"></i>Alat <b data-role="device-text">belum diketahui</b>
+            </span>
+            <button type="button" class="ghost-btn remove-device" data-role="remove">
+              Putuskan
+            </button>
+          </div>
+        </header>
+
+        <div class="alert device-alert" data-role="alert" hidden>
+          <span class="alert-mark" aria-hidden="true"></span>
+          <span class="alert-text">
+            <b data-role="alert-title"></b>
+            <span data-role="alert-body"></span>
+          </span>
+        </div>
+
+        <section class="session" data-role="session" data-state="idle">
+          <span class="session-dot" aria-hidden="true"></span>
+          <span class="session-label" data-role="session-label">Menunggu data</span>
+          <code class="session-id" data-role="session-id">—</code>
+          <span class="session-timer" data-role="session-timer"></span>
+          <span class="session-track"><i data-role="session-bar"></i></span>
+        </section>
+
+        <div class="device-layout">
+          <section class="panel trace-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Pleth · raw ADC</p>
+                <h2>Waveform</h2>
+              </div>
+              <div class="trace-meta">
+                <span data-role="trace-rate">— Hz</span>
+                <span data-role="trace-seq">seq —</span>
+                <span data-role="sample-count">0 sampel</span>
+              </div>
+            </div>
+            <div class="chart-frame">
+              <span class="chart-axis chart-axis-y">Amplitude</span>
+              <canvas
+                class="device-chart"
+                data-role="chart"
+                role="img"
+                aria-label="Grafik waveform PPG realtime"></canvas>
+              <span class="chart-axis chart-axis-x">Samples</span>
+            </div>
+          </section>
+
+          <aside class="device-vitals" data-role="vitals"></aside>
+        </div>
+
+        <details class="device-more">
+          <summary>MFCC, hasil sesi, dan diagnostik topic</summary>
+          <div class="device-detail-grid">
+            <section class="panel mfcc-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Cepstral</p>
+                  <h2>MFCC</h2>
+                </div>
+                <span class="panel-note" data-role="mfcc-meta">menunggu data</span>
+              </div>
+              <div class="mfcc" data-role="mfcc-bars"></div>
+              <details class="mfcc-details">
+                <summary>Detail koefisien MFCC</summary>
+                <dl class="mfcc-values" data-role="mfcc-values"></dl>
+              </details>
+            </section>
+
+            <section class="panel result-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Sesi</p>
+                  <h2>Hasil terakhir</h2>
+                </div>
+                <span class="tag" data-role="result-status">belum ada</span>
+              </div>
+              <dl class="result-empty" data-role="result-grid">
+                Belum ada sesi yang selesai.
+              </dl>
+            </section>
+
+            <section class="panel diagnostic-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">Diagnostik</p>
+                  <h2>Langganan topic</h2>
+                </div>
+                <span class="panel-note" data-role="link-meta">belum terhubung</span>
+              </div>
+              <div class="link-scroll">
+                <table class="link">
+                  <thead>
+                    <tr><th>Topic</th><th>Izin</th><th>Pesan</th><th>Terakhir</th></tr>
+                  </thead>
+                  <tbody data-role="link-rows"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </details>
+      </article>
+    </template>
 
     <script
       src="https://unpkg.com/mqtt@5.15.2/dist/mqtt.min.js"
