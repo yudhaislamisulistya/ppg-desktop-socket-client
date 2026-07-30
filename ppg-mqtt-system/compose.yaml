@@ -39,6 +39,21 @@ services:
       timeout: 3s
       retries: 5
 
+  provisioner:
+    build:
+      context: ./provisioner
+    restart: unless-stopped
+    pid: "service:mosquitto"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    environment:
+      ALLOW_DEVICE_REGISTRATION: ${ALLOW_DEVICE_REGISTRATION:-true}
+    ports:
+      - "${REGISTRATION_BIND_IP:-127.0.0.1}:${REGISTRATION_HOST_PORT:-9080}:8080"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+
   storage:
     build:
       context: ./storage

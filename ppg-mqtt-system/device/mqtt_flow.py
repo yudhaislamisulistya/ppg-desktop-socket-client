@@ -95,6 +95,7 @@ class PpgMqttFlow:
         self._last_metrics_publish_at = 0.0
         self._network_started = False
         self._connected = threading.Event()
+        self.last_error: str | None = None
 
         self.client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
@@ -168,6 +169,7 @@ class PpgMqttFlow:
                 return
             self._network_started = True
             self._connected.clear()
+            self.last_error = None
 
         self._notify_status("connecting")
         try:
@@ -415,6 +417,7 @@ class PpgMqttFlow:
     ) -> None:
         if reason_code != 0:
             LOGGER.error("MQTT connection rejected: %s", reason_code)
+            self.last_error = str(reason_code)
             self._connected.clear()
             self._notify_status("rejected")
             return
@@ -441,6 +444,8 @@ class PpgMqttFlow:
         properties: mqtt.Properties | None,
     ) -> None:
         self._connected.clear()
+        if reason_code != 0:
+            self.last_error = str(reason_code)
         if self._network_started:
             self._notify_status("reconnecting")
         else:
@@ -448,6 +453,9 @@ class PpgMqttFlow:
 
     def _on_connect_fail(self, client: mqtt.Client, userdata: Any) -> None:
         if self._network_started:
+            self.last_error = (
+                f"Cannot reach {self._mqtt_host}:{self._mqtt_port}"
+            )
             LOGGER.warning(
                 "MQTT belum dapat terhubung ke %s:%s",
                 self._mqtt_host,

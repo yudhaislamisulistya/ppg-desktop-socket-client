@@ -46,6 +46,13 @@ Contoh (broker di belakang domain + reverse proxy TLS, lihat bagian
 `device_id`, username, dan password harus sama dengan perangkat yang dibuat
 melalui `scripts/register-device.sh`.
 
+Pada executable `PPG-Glucometer`, wizard pertama otomatis memanggil
+`https://mqtt-glucometer.sivia.id/api/devices/register` menggunakan tiga field:
+`device_id`, `mqtt_username`, dan `mqtt_password`. Setelah registrasi berhasil,
+kredensial MQTT disimpan ke
+`~/.config/ppg-glucometer/mqtt_config.json`. Endpoint provisioning dan router
+Traefik dijelaskan di README.
+
 ### Koneksi lewat domain/HTTPS (reverse proxy)
 
 Jika broker tidak lagi diakses lewat IP + port MQTT mentah (1883/8883),

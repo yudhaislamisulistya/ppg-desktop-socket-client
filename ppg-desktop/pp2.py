@@ -26,6 +26,8 @@ import platform
 import warnings
 import re
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -81,18 +83,25 @@ MQTT_CONNECTION_DEFAULTS = {
     "transport": "websockets",
     "ws_path": "/mqtt",
 }
+MQTT_REGISTRATION_URL = os.getenv(
+    "MQTT_REGISTRATION_URL",
+    "https://mqtt-glucometer.sivia.id/api/devices/register",
+)
+MQTT_DEVICE_ID_PATTERN = re.compile(r"PPG-[A-Za-z0-9_-]+\Z")
 
 
 def build_mqtt_config(device_id, mqtt_username, mqtt_password):
     device_id = device_id.strip()
     mqtt_username = mqtt_username.strip()
 
-    if not device_id.startswith("PPG-"):
-        raise ValueError("Device ID harus diawali PPG-.")
-    if not mqtt_username:
-        raise ValueError("MQTT username wajib diisi.")
-    if not mqtt_password:
-        raise ValueError("MQTT password wajib diisi.")
+    if not MQTT_DEVICE_ID_PATTERN.fullmatch(device_id):
+        raise ValueError(
+            "Device ID harus diawali PPG- dan hanya berisi huruf, angka, _ atau -."
+        )
+    if mqtt_username != device_id:
+        raise ValueError("MQTT username harus sama dengan Device ID.")
+    if len(mqtt_password) < 12:
+        raise ValueError("MQTT password minimal 12 karakter.")
 
     return {
         "device_id": device_id,
@@ -113,6 +122,41 @@ def save_mqtt_config(config, path=MQTT_CONFIG):
     temporary_path.replace(path)
 
 
+def register_mqtt_device(config):
+    request = urllib.request.Request(
+        MQTT_REGISTRATION_URL,
+        data=json.dumps(config).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        try:
+            error_payload = json.loads(error.read())
+            message = (
+                error_payload.get("error", str(error))
+                if isinstance(error_payload, dict)
+                else str(error)
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            message = str(error)
+        raise ValueError(
+            f"Pendaftaran broker ditolak ({error.code}): {message}"
+        ) from None
+    except urllib.error.URLError as error:
+        raise OSError(
+            f"Server pendaftaran tidak dapat dijangkau: {error.reason}"
+        ) from None
+
+    if payload.get("status") not in {"registered", "already_registered"}:
+        raise ValueError("Respons server pendaftaran tidak valid.")
+    return payload["status"]
+
+
 def ensure_mqtt_config(root):
     if MQTT_CONFIG.exists():
         return True
@@ -129,7 +173,7 @@ def ensure_mqtt_config(root):
 
         mqtt_username = simpledialog.askstring(
             "Konfigurasi Awal",
-            "MQTT username:",
+            "MQTT username (harus sama dengan Device ID):",
             initialvalue=device_id.strip(),
             parent=root,
         )
@@ -151,6 +195,7 @@ def ensure_mqtt_config(root):
                 mqtt_username,
                 mqtt_password,
             )
+            registration_status = register_mqtt_device(config)
             save_mqtt_config(config)
         except (OSError, ValueError) as error:
             messagebox.showerror("Konfigurasi Tidak Valid", str(error), parent=root)
@@ -158,7 +203,17 @@ def ensure_mqtt_config(root):
 
         messagebox.showinfo(
             "Konfigurasi Tersimpan",
-            f"Konfigurasi perangkat disimpan di:\n{MQTT_CONFIG}",
+            (
+                f"Konfigurasi perangkat disimpan di:\n{MQTT_CONFIG}\n\n"
+                + (
+                    "Akun broker berhasil didaftarkan."
+                    if registration_status == "registered"
+                    else (
+                        "Akun broker sudah terdaftar. Aplikasi akan memakai "
+                        "password yang Anda masukkan."
+                    )
+                )
+            ),
             parent=root,
         )
         root.deiconify()
@@ -275,6 +330,7 @@ I18N = {
         "mqtt_timeout_title": "MQTT Tidak Terhubung",
         "mqtt_timeout_message": (
             "Serial berhasil dibuka, tetapi MQTT tidak terhubung dalam 10 detik.\n\n"
+            "Alasan terakhir: {detail}\n\n"
             "Periksa konfigurasi {config}, koneksi internet, Device ID, username, "
             "dan password MQTT."
         ),
@@ -354,6 +410,7 @@ I18N = {
         "mqtt_timeout_title": "MQTT Not Connected",
         "mqtt_timeout_message": (
             "The serial port opened, but MQTT did not connect within 10 seconds.\n\n"
+            "Last reason: {detail}\n\n"
             "Check {config}, the internet connection, Device ID, MQTT username, "
             "and password."
         ),
@@ -1887,7 +1944,12 @@ class ArduinoPlotApp:
         self.stop_serial()
         messagebox.showerror(
             self.t("mqtt_timeout_title"),
-            self.t("mqtt_timeout_message", config=MQTT_CONFIG),
+            self.t(
+                "mqtt_timeout_message",
+                config=MQTT_CONFIG,
+                detail=getattr(self.mqtt, "last_error", None)
+                or self.t("status_reconnecting"),
+            ),
         )
 
     def stop_serial(self):

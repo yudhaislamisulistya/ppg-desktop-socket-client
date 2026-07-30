@@ -9,10 +9,14 @@ Raspberry Pi / pp2.py
         ▼
 Eclipse Mosquitto
         ├── WebSocket port 9001 ──► Frontend realtime
+        ├── Provisioner HTTPS ─────► Registrasi akun alat
         └── MQTT subscribe ───────► Storage ─────► PostgreSQL
 ```
 
-Tidak ada backend REST pada versi ini. Frontend menerima waveform dan snapshot SI, HRV, BMI, Age, MFCC, Voltage, serta ADC langsung dari broker. Service `storage` hanya menyimpan raw recording dan hasil akhir setelah tombol `Submit` membuat `measurement_id`.
+REST hanya dipakai untuk provisioning akun alat; data PPG tidak melewati REST.
+Frontend menerima waveform dan snapshot SI, HRV, BMI, Age, MFCC, Voltage,
+serta ADC langsung dari broker. Service `storage` hanya menyimpan raw recording
+dan hasil akhir setelah tombol `Submit` membuat `measurement_id`.
 
 MQTT over WebSocket tersedia pada listener `9001` di `mosquitto/config/mosquitto.conf`. Untuk uji LAN langsung ke port `9001`, gunakan `ws://`. Pada deployment saat ini, listener tersebut berada di belakang reverse proxy Traefik yang menyediakan `wss://` pada port `443` untuk domain `mqtt-glucometer.sivia.id`; detailnya ada di `device/PP2_INTEGRATION.md`. Frontend dan `pp2.py` sama-sama memakai jalur WSS itu secara default.
 
@@ -48,6 +52,7 @@ ppg-desktop-socket-client/
     │   ├── simulator.py
     │   └── config.example.json
     ├── storage/
+    ├── provisioner/
     ├── frontend/
     ├── tools/
     └── tests/
@@ -57,12 +62,13 @@ ppg-desktop-socket-client/
 
 - Linux/VPS atau komputer yang memiliki Docker.
 - Docker Compose v2 (`docker compose`).
-- Port `1883`, `9001`, `9100`, dan `55432` tersedia.
+- Port `1883`, `9001`, `9080`, `9100`, dan `55432` tersedia.
 
 Untuk uji LAN:
 
 - `1883`: MQTT Raspberry Pi.
 - `9001`: MQTT over WebSocket untuk browser.
+- `9080`: API provisioning; hanya boleh dijangkau reverse proxy/internal.
 - `9100`: halaman frontend.
 - `55432`: PostgreSQL untuk koneksi langsung dari DBeaver.
 
@@ -82,6 +88,9 @@ Edit `.env`:
 ```dotenv
 COMPOSE_PROJECT_NAME=ppg-mqtt-system
 FRONTEND_PORT=9100
+REGISTRATION_BIND_IP=202.141.15.3
+REGISTRATION_HOST_PORT=8080
+ALLOW_DEVICE_REGISTRATION=true
 STORAGE_PASSWORD=password-storage-yang-kuat
 POSTGRES_DB=ppg
 POSTGRES_USER=ppg
@@ -93,6 +102,11 @@ TZ=Asia/Jakarta
 Password storage harus sama dengan akun `storage` pada broker. Script berikut akan membuatnya dari `.env`.
 Password PostgreSQL tidak perlu sama dengan password MQTT. Gunakan password
 acak yang kuat karena PostgreSQL dapat diakses dari jaringan luar.
+
+`ALLOW_DEVICE_REGISTRATION=true` membuat alat baru dapat mendaftarkan akun
+langsung dari wizard pertama. Ubah menjadi `false` jika pendaftaran perangkat
+baru ingin ditutup sementara; perangkat yang sudah terdaftar tetap dapat
+terhubung.
 
 `COMPOSE_PROJECT_NAME` menjadi prefix container. Dengan nilai default, nama
 container akan terlihat seperti:
@@ -178,13 +192,77 @@ Untuk mencabut alat:
 docker compose restart mosquitto
 ```
 
+### Registrasi mandiri dari aplikasi alat
+
+Service `provisioner` menyediakan endpoint:
+
+```text
+POST /api/devices/register
+```
+
+Endpoint hanya menerima:
+
+- `device_id` dengan format `PPG-...`;
+- `mqtt_username` yang sama persis dengan `device_id`;
+- password minimal 12 karakter.
+
+Provisioner memakai aturan **first claim**:
+
+- username yang belum ada dibuat menggunakan password dari alat;
+- username yang sudah ada tidak pernah ditimpa password-nya oleh endpoint;
+- ACL perangkat dipastikan tersedia;
+- maksimal 20 permintaan registrasi diproses per menit.
+
+Setelah itu provisioner mengirim `SIGHUP` agar Mosquitto memuat ulang password
+dan ACL tanpa restart container. Karena username lama tidak dapat ditimpa,
+registrasi sederhana ini tidak dapat dipakai untuk mengambil alih akun alat
+yang sudah terdaftar.
+
+Konsekuensi mode sederhana tanpa token: siapa pun yang dapat mengakses endpoint
+dapat mendaftarkan Device ID yang masih kosong lebih dahulu. Gunakan Device ID
+yang tidak mudah ditebak dan password berbeda untuk setiap alat. Pendaftaran
+baru dapat ditutup melalui `ALLOW_DEVICE_REGISTRATION=false` setelah seluruh
+alat selesai dipasang.
+
+Untuk executable yang sudah memiliki konfigurasi lama, hapus konfigurasi agar
+wizard registrasi ditampilkan kembali:
+
+```bash
+rm ~/.config/ppg-glucometer/mqtt_config.json
+```
+
+Pada Traefik Coolify, tambahkan router dengan prioritas lebih tinggi daripada
+router WebSocket MQTT:
+
+```yaml
+http:
+  routers:
+    mqtt-glucometer-register:
+      rule: Host(`mqtt-glucometer.sivia.id`) && Path(`/api/devices/register`)
+      priority: 100
+      entryPoints:
+        - https
+      service: mqtt-glucometer-register-service
+      tls:
+        certResolver: letsencrypt
+  services:
+    mqtt-glucometer-register-service:
+      loadBalancer:
+        servers:
+              - url: 'http://202.141.15.3:8080'
+```
+
+Port `8080` pada `202.141.15.3` hanya perlu dapat diakses oleh server Traefik
+`202.141.15.5`; jangan diarahkan langsung dari internet. Router WSS yang
+meneruskan domain ke `202.141.15.3:9001` tetap dipertahankan.
+
 ## 5. Jalankan server
 
 ```bash
 chmod +x scripts/*.sh
 docker compose up -d --build
 docker compose ps
-docker compose logs -f postgres mosquitto storage
+docker compose logs -f postgres mosquitto provisioner storage
 ```
 
 Validasi seluruh service:
@@ -305,10 +383,12 @@ Script tersebut membuat executable di
 Desktop. File executable tersebut dapat disalin sendiri ke Desktop atau lokasi
 lain tanpa membawa folder project. Setelah build selesai, pengguna tidak perlu
 menjalankan `pp2.py` lagi. Pada pembukaan pertama, aplikasi meminta `device_id`,
-`mqtt_username`, dan `mqtt_password`, kemudian menyimpan konfigurasi ke
+`mqtt_username`, dan `mqtt_password`. Aplikasi otomatis mendaftarkan akun
+melalui provisioner, lalu menyimpan konfigurasi ke
 `~/.config/ppg-glucometer/mqtt_config.json`. Dependency Python sudah disertakan
-di dalam hasil build, sehingga aplikasi tidak memerlukan pip atau internet saat
-dibuka. Build harus diulang jika kode aplikasi berubah.
+di dalam hasil build, sehingga aplikasi tidak memerlukan pip saat dibuka.
+Koneksi jaringan tetap diperlukan untuk registrasi, MQTT, dan akses frontend.
+Build harus diulang jika kode aplikasi berubah.
 
 `pp2.py` otomatis mengambil:
 
@@ -587,6 +667,31 @@ Jika log menunjukkan file password tidak dapat dibaca, jalankan ulang:
 ./scripts/register-device.sh PPG-ABC12345
 docker compose restart mosquitto
 ```
+
+Jika serial terbuka tetapi MQTT timeout untuk alat baru, pastikan akun dan ACL
+benar-benar ada di server broker:
+
+```bash
+grep -q '^PPG-002:' mosquitto/config/passwords \
+  && echo 'password: ada' || echo 'password: belum ada'
+
+sed -n \
+  '/# BEGIN DEVICE PPG-002/,/# END DEVICE PPG-002/p' \
+  mosquitto/config/acl
+
+docker compose logs --since=5m mosquitto provisioner
+```
+
+Jika akun belum ada dan provisioner belum dideploy, daftarkan sementara secara
+manual:
+
+```bash
+./scripts/register-device.sh PPG-002
+docker compose restart mosquitto
+```
+
+Masukkan password lewat prompt interaktif. Jangan menaruh password langsung di
+command karena karakter khusus dapat diproses shell dan masuk ke history.
 
 Jika sebelumnya memakai nama service `glucometer-*`, bersihkan container lama:
 

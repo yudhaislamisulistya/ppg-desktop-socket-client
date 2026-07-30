@@ -137,12 +137,12 @@ class DesktopLifecycleTest(unittest.TestCase):
     def test_first_run_mqtt_config(self):
         config = PP2.build_mqtt_config(
             " PPG-001 ",
-            " device-user ",
+            " PPG-001 ",
             " device-password ",
         )
 
         self.assertEqual(config["device_id"], "PPG-001")
-        self.assertEqual(config["mqtt_username"], "device-user")
+        self.assertEqual(config["mqtt_username"], "PPG-001")
         self.assertEqual(config["mqtt_password"], " device-password ")
         self.assertEqual(config["mqtt_host"], "mqtt-glucometer.sivia.id")
         self.assertEqual(config["mqtt_port"], 443)
@@ -150,6 +150,21 @@ class DesktopLifecycleTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "PPG-"):
             PP2.build_mqtt_config("001", "device-user", "device-password")
+        with self.assertRaisesRegex(ValueError, "harus sama"):
+            PP2.build_mqtt_config("PPG-001", "device-user", "device-password")
+        with self.assertRaisesRegex(ValueError, "minimal 12"):
+            PP2.build_mqtt_config("PPG-001", "PPG-001", "short")
+
+    def test_mqtt_rejection_reason_is_preserved(self):
+        flow = PP2.PpgMqttFlow.__new__(PP2.PpgMqttFlow)
+        flow._connected = threading.Event()
+        statuses = []
+        flow._notify_status = statuses.append
+
+        flow._on_connect(None, None, None, "Not authorized", None)
+
+        self.assertEqual(flow.last_error, "Not authorized")
+        self.assertEqual(statuses, ["rejected"])
 
     def test_submit_uses_required_patient_name(self):
         app = PP2.ArduinoPlotApp.__new__(PP2.ArduinoPlotApp)

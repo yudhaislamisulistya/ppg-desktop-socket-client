@@ -1,8 +1,8 @@
 ppg-desktop/mqtt_config.json
-ppg-desktop/__pycache__/
 ppg-desktop/*.csv
 .gstack/
 docs/
+
 # Python cache
 __pycache__/
 *.py[cod]
