@@ -134,6 +134,23 @@ class DesktopLifecycleTest(unittest.TestCase):
         self.assertEqual(set(PP2.I18N["id"]), set(PP2.I18N["en"]))
         self.assertEqual(set(PP2.DARK_THEME), set(PP2.LIGHT_THEME))
 
+    def test_first_run_mqtt_config(self):
+        config = PP2.build_mqtt_config(
+            " PPG-001 ",
+            " device-user ",
+            " device-password ",
+        )
+
+        self.assertEqual(config["device_id"], "PPG-001")
+        self.assertEqual(config["mqtt_username"], "device-user")
+        self.assertEqual(config["mqtt_password"], " device-password ")
+        self.assertEqual(config["mqtt_host"], "mqtt-glucometer.sivia.id")
+        self.assertEqual(config["mqtt_port"], 443)
+        self.assertEqual(config["transport"], "websockets")
+
+        with self.assertRaisesRegex(ValueError, "PPG-"):
+            PP2.build_mqtt_config("001", "device-user", "device-password")
+
     def test_submit_uses_required_patient_name(self):
         app = PP2.ArduinoPlotApp.__new__(PP2.ArduinoPlotApp)
         app.measurement_in_progress = False

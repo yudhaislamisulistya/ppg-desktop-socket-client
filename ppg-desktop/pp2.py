@@ -1,8 +1,9 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 from tkinter import ttk
 from tkinter import font as tkfont
 import time
+import json
 import serial
 import serial.tools.list_ports as list_ports
 # pyrefly: ignore [missing-import]
@@ -28,29 +29,140 @@ import sys
 from pathlib import Path
 
 
-APP_DIR = Path(__file__).resolve().parent
-MQTT_DEVICE_DIR = Path(
-    os.getenv(
-        "MQTT_DEVICE_DIR",
-        APP_DIR.parent / "ppg-mqtt-system" / "device",
-    )
-).expanduser().resolve()
-MQTT_FLOW_FILE = MQTT_DEVICE_DIR / "mqtt_flow.py"
-if not MQTT_FLOW_FILE.exists():
-    raise FileNotFoundError(
-        f"mqtt_flow.py tidak ditemukan di {MQTT_FLOW_FILE}. "
-        "Atur environment MQTT_DEVICE_DIR ke folder device ppg-mqtt-system."
-    )
-if str(MQTT_DEVICE_DIR) not in sys.path:
-    sys.path.insert(0, str(MQTT_DEVICE_DIR))
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+APP_DIR = (
+    Path(sys.executable).resolve().parent
+    if IS_FROZEN
+    else Path(__file__).resolve().parent
+)
+
+MQTT_DEVICE_DIR_VALUE = os.getenv("MQTT_DEVICE_DIR")
+MQTT_DEVICE_DIR = None
+if MQTT_DEVICE_DIR_VALUE:
+    MQTT_DEVICE_DIR = Path(MQTT_DEVICE_DIR_VALUE).expanduser().resolve()
+elif not IS_FROZEN:
+    MQTT_DEVICE_DIR = (APP_DIR.parent / "ppg-mqtt-system" / "device").resolve()
+
+if MQTT_DEVICE_DIR is not None:
+    MQTT_FLOW_FILE = MQTT_DEVICE_DIR / "mqtt_flow.py"
+    if not MQTT_FLOW_FILE.exists():
+        raise FileNotFoundError(
+            f"mqtt_flow.py tidak ditemukan di {MQTT_FLOW_FILE}. "
+            "Atur environment MQTT_DEVICE_DIR ke folder device ppg-mqtt-system."
+        )
+    if str(MQTT_DEVICE_DIR) not in sys.path:
+        sys.path.insert(0, str(MQTT_DEVICE_DIR))
 
 # pyrefly: ignore [missing-import]
 from mqtt_flow import PpgMqttFlow, load_config
 
 
+if IS_FROZEN:
+    DEFAULT_MQTT_CONFIG = (
+        Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config"))
+        / "ppg-glucometer"
+        / "mqtt_config.json"
+    )
+else:
+    DEFAULT_MQTT_CONFIG = APP_DIR / "mqtt_config.json"
+
 MQTT_CONFIG = Path(
-    os.getenv("MQTT_CONFIG", APP_DIR / "mqtt_config.json")
+    os.getenv("MQTT_CONFIG", DEFAULT_MQTT_CONFIG)
 ).expanduser().resolve()
+
+MQTT_CONNECTION_DEFAULTS = {
+    "mqtt_host": "mqtt-glucometer.sivia.id",
+    "mqtt_port": 443,
+    "sample_period_ms": 10.0,
+    "batch_size": 10,
+    "metrics_interval_ms": 200,
+    "tls": True,
+    "ca_file": None,
+    "transport": "websockets",
+    "ws_path": "/mqtt",
+}
+
+
+def build_mqtt_config(device_id, mqtt_username, mqtt_password):
+    device_id = device_id.strip()
+    mqtt_username = mqtt_username.strip()
+
+    if not device_id.startswith("PPG-"):
+        raise ValueError("Device ID harus diawali PPG-.")
+    if not mqtt_username:
+        raise ValueError("MQTT username wajib diisi.")
+    if not mqtt_password:
+        raise ValueError("MQTT password wajib diisi.")
+
+    return {
+        "device_id": device_id,
+        **MQTT_CONNECTION_DEFAULTS,
+        "mqtt_username": mqtt_username,
+        "mqtt_password": mqtt_password,
+    }
+
+
+def save_mqtt_config(config, path=MQTT_CONFIG):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_suffix(".tmp")
+    temporary_path.write_text(
+        json.dumps(config, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(temporary_path, 0o600)
+    temporary_path.replace(path)
+
+
+def ensure_mqtt_config(root):
+    if MQTT_CONFIG.exists():
+        return True
+
+    root.withdraw()
+    while True:
+        device_id = simpledialog.askstring(
+            "Konfigurasi Awal",
+            "Device ID (harus diawali PPG-):",
+            parent=root,
+        )
+        if device_id is None:
+            return False
+
+        mqtt_username = simpledialog.askstring(
+            "Konfigurasi Awal",
+            "MQTT username:",
+            initialvalue=device_id.strip(),
+            parent=root,
+        )
+        if mqtt_username is None:
+            return False
+
+        mqtt_password = simpledialog.askstring(
+            "Konfigurasi Awal",
+            "MQTT password:",
+            show="*",
+            parent=root,
+        )
+        if mqtt_password is None:
+            return False
+
+        try:
+            config = build_mqtt_config(
+                device_id,
+                mqtt_username,
+                mqtt_password,
+            )
+            save_mqtt_config(config)
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Konfigurasi Tidak Valid", str(error), parent=root)
+            continue
+
+        messagebox.showinfo(
+            "Konfigurasi Tersimpan",
+            f"Konfigurasi perangkat disimpan di:\n{MQTT_CONFIG}",
+            parent=root,
+        )
+        root.deiconify()
+        return True
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -2650,5 +2762,8 @@ class ArduinoPlotApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = ArduinoPlotApp(root)
-    app.run()
+    if ensure_mqtt_config(root):
+        app = ArduinoPlotApp(root)
+        app.run()
+    else:
+        root.destroy()
