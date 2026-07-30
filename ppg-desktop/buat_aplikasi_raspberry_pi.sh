@@ -8,7 +8,7 @@ DEVICE_DIR="$PROJECT_DIR/ppg-mqtt-system/device"
 VENV_DIR="${VENV_DIR:-$PROJECT_DIR/.venv}"
 PYTHON="$VENV_DIR/bin/python"
 DIST_ROOT="$SCRIPT_DIR/dist"
-APP_DIR="$DIST_ROOT/$APP_NAME"
+APP_PATH="$DIST_ROOT/$APP_NAME"
 BUILD_ROOT="$SCRIPT_DIR/build"
 
 if [ "$(uname -s)" != "Linux" ]; then
@@ -52,12 +52,15 @@ echo "Memasang dependency build ..."
 "$PYTHON" -m pip install -r "$SCRIPT_DIR/requirements.txt" pyinstaller
 
 mkdir -p "$BUILD_ROOT"
+if [ -d "$APP_PATH" ]; then
+    rm -r "$APP_PATH"
+fi
 
 echo "Membuat aplikasi $APP_NAME ..."
 "$PYTHON" -m PyInstaller \
     --noconfirm \
     --clean \
-    --onedir \
+    --onefile \
     --windowed \
     --name "$APP_NAME" \
     --paths "$DEVICE_DIR" \
@@ -77,8 +80,8 @@ write_launcher() {
         printf '%s\n' "Type=Application"
         printf '%s\n' "Name=PPG Glucometer"
         printf '%s\n' "Comment=Aplikasi pengukuran PPG Glucometer"
-        printf '%s\n' "Exec=\"$APP_DIR/$APP_NAME\""
-        printf '%s\n' "Path=$APP_DIR"
+        printf '%s\n' "Exec=\"$APP_PATH\""
+        printf '%s\n' "Path=$HOME"
         printf '%s\n' "Icon=utilities-system-monitor"
         printf '%s\n' "Terminal=false"
         printf '%s\n' "Categories=Utility;"
@@ -110,7 +113,7 @@ fi
 
 echo
 echo "Selesai."
-echo "Aplikasi : $APP_DIR/$APP_NAME"
+echo "Aplikasi : $APP_PATH"
 echo "Menu     : PPG Glucometer"
 if [ -d "$DESKTOP_DIR" ]; then
     echo "Desktop  : $DESKTOP_DIR/PPG-Glucometer.desktop"

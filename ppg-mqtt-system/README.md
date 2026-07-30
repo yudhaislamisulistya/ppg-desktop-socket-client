@@ -301,9 +301,10 @@ chmod +x ppg-desktop/buat_aplikasi_raspberry_pi.sh
 
 Jalankan sebagai user Desktop Raspberry Pi, tanpa `sudo`.
 Script tersebut membuat executable di
-`ppg-desktop/dist/PPG-Glucometer/PPG-Glucometer`, lalu memasang shortcut ke menu
-aplikasi dan Desktop. Setelah build selesai, pengguna tidak perlu menjalankan
-`pp2.py` lagi. Pada pembukaan pertama, aplikasi meminta `device_id`,
+`ppg-desktop/dist/PPG-Glucometer`, lalu memasang shortcut ke menu aplikasi dan
+Desktop. File executable tersebut dapat disalin sendiri ke Desktop atau lokasi
+lain tanpa membawa folder project. Setelah build selesai, pengguna tidak perlu
+menjalankan `pp2.py` lagi. Pada pembukaan pertama, aplikasi meminta `device_id`,
 `mqtt_username`, dan `mqtt_password`, kemudian menyimpan konfigurasi ke
 `~/.config/ppg-glucometer/mqtt_config.json`. Dependency Python sudah disertakan
 di dalam hasil build, sehingga aplikasi tidak memerlukan pip atau internet saat
