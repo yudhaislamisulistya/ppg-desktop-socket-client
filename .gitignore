@@ -3,3 +3,21 @@ ppg-desktop/__pycache__/
 ppg-desktop/*.csv
 .gstack/
 docs/
+# Python cache
+__pycache__/
+*.py[cod]
+*.log
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Hasil build aplikasi
+ppg-desktop/build/
+ppg-desktop/dist/
+
+# Sistem operasi dan editor
+.DS_Store
+.vscode/
+.idea/
