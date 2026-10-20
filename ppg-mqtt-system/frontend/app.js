@@ -1,4 +1,4 @@
-/* global mqtt, normalizeWaveform */
+/* global mqtt, normalizeWaveform, PREVIEW_MFCC, previewSamples */
 
 const BROKER = {
   host: "mqtt-glucometer.sivia.id",
@@ -41,10 +41,14 @@ const RESULT_FIELDS = [
 
 const THEME_STORAGE_KEY = "ppg-monitor-theme";
 const dashboards = new Map();
+let previewDashboard = null;
+let previewTimer = null;
 
 const el = (id) => document.getElementById(id);
 const page = {
   form: el("conn-form"),
+  connection: el("connection"),
+  previewConnect: el("preview-connect"),
   username: el("username"),
   password: el("password"),
   deviceId: el("device-id"),
@@ -100,7 +104,7 @@ function initialTheme() {
   } catch (_error) {
     // Preferensi sistem masih cukup ketika storage browser diblokir.
   }
-  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 function applyTheme(theme, persist = true) {
@@ -120,6 +124,7 @@ function applyTheme(theme, persist = true) {
     }
   }
   dashboards.forEach((dashboard) => dashboard.drawChart());
+  previewDashboard?.drawChart();
 }
 
 function showPageAlert(level, title, body) {
@@ -153,6 +158,17 @@ function updateSummary() {
   }
 
   page.empty.hidden = dashboards.size !== 0;
+  if (dashboards.size === 0 && !previewDashboard) {
+    previewDashboard = new DeviceDashboard({ deviceId: "PPG-DEMO", preview: true });
+    previewTimer = setInterval(() => {
+      if (!document.hidden) previewDashboard?.advancePreview();
+    }, 100);
+  } else if (dashboards.size > 0 && previewDashboard) {
+    clearInterval(previewTimer);
+    previewTimer = null;
+    previewDashboard.destroy();
+    previewDashboard = null;
+  }
   page.connectButton.disabled = dashboards.size >= MAX_DASHBOARDS;
 }
 
@@ -257,7 +273,7 @@ function tableCell(text, className) {
 }
 
 class DeviceDashboard {
-  constructor({ deviceId, username, password }) {
+  constructor({ deviceId, username, password, preview = false }) {
     this.deviceId = deviceId;
     this.username = username;
     this.client = null;
@@ -288,7 +304,52 @@ class DeviceDashboard {
     this.renderResult(null);
     this.setMode("idle", null);
     this.drawChart();
-    this.connect(password);
+    if (preview) this.startPreview();
+    else this.connect(password);
+  }
+
+  startPreview() {
+    this.node.dataset.preview = "true";
+    this.node.dataset.state = "preview";
+    this.node.setAttribute("aria-label", "Pratinjau perangkat dengan data simulasi");
+    this.ui["device-caption"].textContent = "Pratinjau perangkat";
+    this.ui["broker-lamp"].hidden = true;
+    this.ui.remove.hidden = true;
+    this.ui["device-more"].hidden = true;
+    this.ui["device-text"].textContent = "Data simulasi";
+    this.ui["device-lamp"].dataset.state = "preview";
+    this.ui.chart.setAttribute("aria-label", "Pratinjau waveform PPG menggunakan data simulasi");
+    this.setMode("preview", "Tidak direkam atau disimpan");
+    this.ui["trace-rate"].textContent = "100 Hz";
+    this.renderMfcc(PREVIEW_MFCC);
+    const values = [6.2841, 42.6, 22.49, 28, 1.65, 2048];
+    VITALS.forEach((vital, index) => this.updateVital(vital.id, values[index], vital.digits));
+    this.pushSamples(previewSamples(0, TRACE_CAPACITY));
+    this.renderPreviewTrace();
+    this.previewPaused = Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+    this.ui["preview-toggle"].hidden = false;
+    this.ui["preview-toggle"].addEventListener("click", () => {
+      this.previewPaused = !this.previewPaused;
+      this.renderPreviewControl();
+    });
+    this.renderPreviewControl();
+  }
+
+  renderPreviewControl() {
+    this.ui["preview-toggle"].textContent = this.previewPaused ? "Lanjutkan pratinjau" : "Jeda pratinjau";
+    this.ui["preview-toggle"].setAttribute("aria-pressed", String(this.previewPaused));
+  }
+
+  renderPreviewTrace() {
+    this.ui["trace-seq"].textContent = `seq ${Math.floor(this.totalSamples / 10)}`;
+    this.ui["sample-count"].textContent = `${this.trace.length.toLocaleString("id-ID")} sampel`;
+    this.drawChart();
+  }
+
+  advancePreview() {
+    if (this.previewPaused || this.closed) return;
+    this.pushSamples(previewSamples(this.totalSamples, 10));
+    this.renderPreviewTrace();
   }
 
   setBroker(text, level) {
@@ -330,7 +391,8 @@ class DeviceDashboard {
     this.ui["session-id"].textContent = measurementId || "—";
     const labels = {
       idle: "Menunggu data",
-      live: "Live preview",
+      live: "Data langsung",
+      preview: "Simulasi sinyal PPG",
       recording: "Merekam",
       completed: "Selesai",
       cancelled: "Dibatalkan",
@@ -773,6 +835,15 @@ function addDashboard() {
     return;
   }
 
+  if (typeof mqtt === "undefined") {
+    showPageAlert(
+      "bad",
+      "Pustaka MQTT belum tersedia",
+      "Pastikan koneksi internet tersedia. Tunggu beberapa saat lalu coba hubungkan kembali; pratinjau tetap bisa digunakan.",
+    );
+    return;
+  }
+
   hidePageAlert();
   const dashboard = new DeviceDashboard({ deviceId, username, password });
   dashboards.set(deviceId, dashboard);
@@ -800,10 +871,17 @@ page.username.addEventListener("input", () => {
 page.themeToggle.addEventListener("click", () => {
   applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
 });
+page.previewConnect.addEventListener("click", () => {
+  page.connection.open = true;
+  page.deviceId.focus();
+});
 window.addEventListener("resize", () => {
   dashboards.forEach((dashboard) => dashboard.drawChart());
+  previewDashboard?.drawChart();
 });
 window.addEventListener("beforeunload", () => {
+  clearInterval(previewTimer);
+  previewDashboard?.destroy();
   dashboards.forEach((dashboard) => dashboard.destroy());
 });
 

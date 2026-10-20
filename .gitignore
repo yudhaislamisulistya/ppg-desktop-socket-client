@@ -2,6 +2,13 @@ ppg-desktop/mqtt_config.json
 ppg-desktop/*.csv
 .gstack/
 docs/
+!/docs/
+/docs/*
+!/docs/previews/
+/docs/previews/*
+!/docs/previews/frontend-desktop-light.png
+!/docs/previews/frontend-desktop-dark.png
+!/docs/previews/frontend-mobile-light.png
 
 # Python cache
 __pycache__/

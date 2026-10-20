@@ -279,6 +279,33 @@ http://IP_SERVER:9100
 
 Jika `FRONTEND_PORT` diubah pada `.env`, gunakan port tersebut pada URL.
 
+Halaman awal menampilkan pratinjau otomatis `PPG-DEMO` sebelum perangkat
+ditambahkan. Waveform, enam parameter, dan 13 koefisien MFCC memakai data
+simulasi yang diberi label, bukan hasil pengukuran. Pratinjau tidak membuat
+koneksi MQTT, tidak memublikasikan pesan, tidak membuat sesi perekaman, dan
+tidak menyimpan data ke database. Animasi dapat dijeda dan otomatis dijeda
+untuk pengguna dengan preferensi pengurangan gerakan.
+
+Buka **Hubungkan perangkat** atau tombol **Hubungkan alat** untuk menampilkan
+form Device ID, Username, dan Password. Pratinjau dihentikan serta dihapus
+saat perangkat ditambahkan agar data simulasi tidak tercampur dengan data
+alat. Setelah semua panel perangkat diputuskan, pratinjau muncul kembali.
+Grafik MFCC tersedia langsung di samping waveform; buka **Detail koefisien
+MFCC** untuk melihat nilai C01 sampai C13. Hasil perekaman dan diagnostik MQTT
+tersedia melalui panel terpisah yang dapat dibuka. Tema terang dan gelap
+dapat diubah melalui tombol tema pada header.
+
+Preview visual tersedia untuk [desktop tema terang](../docs/previews/frontend-desktop-light.png),
+[desktop tema gelap](../docs/previews/frontend-desktop-dark.png), dan
+[ponsel](../docs/previews/frontend-mobile-light.png). Untuk menjalankan preview
+lokal dari direktori `ppg-mqtt-system`:
+
+```bash
+python3 -m http.server 8173 --bind 127.0.0.1 --directory frontend
+```
+
+Buka `http://127.0.0.1:8173` pada browser.
+
 Form koneksi dapat menambahkan hingga enam perangkat sekaligus. Setiap Device
 ID membuat koneksi MQTT dan panel terpisah berisi waveform, enam vital, status
 sesi, MFCC, hasil terakhir, dan diagnostik topic. Device ID yang sama tidak

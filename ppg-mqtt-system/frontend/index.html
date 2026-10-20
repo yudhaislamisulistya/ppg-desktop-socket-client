@@ -3,31 +3,22 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PPG Monitor — Multi Device</title>
+    <title>Dashboard | Glucometer PPG Merah Putih</title>
     <link rel="icon" href="data:,">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans+Condensed:wght@600;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+    <link rel="stylesheet" href="styles.css?v=20261020-preview">
   </head>
   <body>
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l2.5-6 5 12 2.5-6h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
         <span class="brand-copy">
-          <span class="brand-name">PPG Monitor</span>
-          <span class="brand-subtitle">Multi-device realtime dashboard</span>
-        </span>
-      </div>
-
-      <div class="topbar-chips">
-        <span class="chip">
-          <span class="chip-key">Dashboard</span>
-          <span class="chip-val" id="chip-device">0 / 6</span>
-        </span>
-        <span class="chip" id="chip-mode-wrap" data-mode="idle">
-          <span class="chip-key">Terhubung</span>
-          <span class="chip-val" id="chip-mode">0</span>
+          <span class="brand-name">Glucometer</span>
+          <span class="brand-subtitle">PPG Merah Putih</span>
         </span>
       </div>
 
@@ -41,14 +32,26 @@
       </div>
     </header>
 
-    <section class="connection" id="connection">
-      <div class="connection-head">
-        <div>
-          <p class="eyebrow">Koneksi MQTT</p>
-          <h1>Tambah perangkat</h1>
-        </div>
-        <p>Setiap perangkat memiliki koneksi dan panel realtime sendiri.</p>
+    <section class="page-heading" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Monitoring realtime</p>
+        <h1 id="page-title">Dashboard perangkat</h1>
+        <p class="page-description">Sinyal PPG dan parameter alat, dalam satu tampilan.</p>
       </div>
+      <div class="topbar-chips" aria-label="Ringkasan koneksi">
+        <span class="chip"><span class="chip-key">Perangkat</span><span class="chip-val" id="chip-device">0 / 6</span></span>
+        <span class="chip" id="chip-mode-wrap" data-mode="idle"><span class="chip-key">Terhubung</span><span class="chip-val" id="chip-mode">0</span></span>
+      </div>
+    </section>
+
+    <details class="connection" id="connection">
+      <summary class="connection-head">
+        <span class="connection-copy">
+          <span class="connection-title">Hubungkan perangkat</span>
+          <span class="connection-description">Gunakan kredensial MQTT alat Anda.</span>
+        </span>
+        <span class="connection-action">Tambah perangkat <span aria-hidden="true">+</span></span>
+      </summary>
       <form class="conn-form" id="conn-form" autocomplete="off">
         <p class="field">
           <label for="device-id">Device ID</label>
@@ -62,16 +65,14 @@
           <label for="password">Password</label>
           <input id="password" type="password" placeholder="Password MQTT" required autocomplete="current-password">
         </p>
-        <button class="primary-btn" id="connect-button" type="submit">Tambah dashboard</button>
+        <button class="primary-btn" id="connect-button" type="submit">Hubungkan</button>
       </form>
       <p class="conn-hint">
-        Maksimal <strong>6 dashboard aktif</strong>. Device ID yang sama tidak
-        dapat ditambahkan dua kali. Batas dapat dinaikkan kemudian tanpa
-        mengubah struktur halaman.
+        Koneksi terenkripsi melalui WSS. Maksimal <strong>6 perangkat</strong> dalam satu halaman.
       </p>
-    </section>
+    </details>
 
-    <div class="alert" id="alert" hidden>
+    <div class="alert" id="alert" role="alert" hidden>
       <span class="alert-mark" aria-hidden="true"></span>
       <span class="alert-text">
         <b id="alert-title"></b>
@@ -79,19 +80,23 @@
       </span>
     </div>
 
-    <main class="dashboard-grid" id="dashboard-grid">
-      <section class="dashboard-empty" id="dashboard-empty">
-        <span class="dashboard-empty-mark" aria-hidden="true"></span>
-        <h2>Belum ada perangkat</h2>
-        <p>Masukkan Device ID, username, dan password untuk membuat dashboard pertama.</p>
-      </section>
-    </main>
+    <section class="preview-notice" id="dashboard-empty" aria-label="Informasi mode pratinjau">
+      <span class="preview-symbol" aria-hidden="true">i</span>
+      <div><h2>Mode pratinjau <span class="preview-badge">Data simulasi</span></h2>
+        <p>Belum ada perangkat ditambahkan. Jelajahi tampilan tanpa alat; data ini bukan hasil pengukuran dan tidak disimpan.</p>
+      </div>
+      <button class="text-btn" id="preview-connect" type="button">Hubungkan alat <span aria-hidden="true">&rarr;</span></button>
+    </section>
+
+    <main class="dashboard-grid" id="dashboard-grid" aria-label="Dashboard perangkat PPG"></main>
+
+    <footer class="page-footer"><span>Glucometer PPG Merah Putih</span><span>Monitoring melalui MQTT over WebSocket</span></footer>
 
     <template id="device-dashboard-template">
       <article class="device-dashboard" data-state="connecting">
         <header class="device-head">
           <div>
-            <p class="eyebrow">Perangkat PPG</p>
+            <p class="eyebrow" data-role="device-caption">Perangkat PPG</p>
             <h2 data-role="device-name">—</h2>
           </div>
           <div class="device-indicators">
@@ -104,10 +109,11 @@
             <button type="button" class="ghost-btn remove-device" data-role="remove">
               Putuskan
             </button>
+            <button type="button" class="ghost-btn" data-role="preview-toggle" aria-pressed="false" hidden>Jeda pratinjau</button>
           </div>
         </header>
 
-        <div class="alert device-alert" data-role="alert" hidden>
+        <div class="alert device-alert" data-role="alert" role="alert" hidden>
           <span class="alert-mark" aria-hidden="true"></span>
           <span class="alert-text">
             <b data-role="alert-title"></b>
@@ -127,7 +133,7 @@
           <section class="panel trace-panel">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Pleth · raw ADC</p>
+                <p class="eyebrow">Sinyal PPG</p>
                 <h2>Waveform</h2>
               </div>
               <div class="trace-meta">
@@ -147,27 +153,27 @@
             </div>
           </section>
 
-          <aside class="device-vitals" data-role="vitals"></aside>
+          <section class="panel mfcc-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Analisis sinyal</p>
+                <h2>MFCC</h2>
+              </div>
+              <span class="panel-note" data-role="mfcc-meta">menunggu data</span>
+            </div>
+            <div class="mfcc" data-role="mfcc-bars"></div>
+            <details class="mfcc-details">
+              <summary>Detail koefisien MFCC</summary>
+              <dl class="mfcc-values" data-role="mfcc-values"></dl>
+            </details>
+          </section>
         </div>
 
-        <details class="device-more">
-          <summary>MFCC, hasil sesi, dan diagnostik topic</summary>
-          <div class="device-detail-grid">
-            <section class="panel mfcc-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">Cepstral</p>
-                  <h2>MFCC</h2>
-                </div>
-                <span class="panel-note" data-role="mfcc-meta">menunggu data</span>
-              </div>
-              <div class="mfcc" data-role="mfcc-bars"></div>
-              <details class="mfcc-details">
-                <summary>Detail koefisien MFCC</summary>
-                <dl class="mfcc-values" data-role="mfcc-values"></dl>
-              </details>
-            </section>
+        <aside class="device-vitals" data-role="vitals" aria-label="Parameter perangkat"></aside>
 
+        <details class="device-more" data-role="device-more">
+          <summary>Hasil perekaman dan diagnostik MQTT</summary>
+          <div class="device-detail-grid">
             <section class="panel result-panel">
               <div class="panel-head">
                 <div>
@@ -204,10 +210,12 @@
     </template>
 
     <script
+      async
       src="https://unpkg.com/mqtt@5.15.2/dist/mqtt.min.js"
       integrity="sha384-haZiwxTLortiFcYMBEEE1+8ayC+o18YtuwHZv+4WQHoPaLzRjwOV6h7Vva5iLSCZ"
       crossorigin="anonymous"></script>
     <script src="waveform.js"></script>
-    <script src="app.js"></script>
+    <script src="preview.js"></script>
+    <script src="app.js?v=20261020-preview"></script>
   </body>
 </html>
