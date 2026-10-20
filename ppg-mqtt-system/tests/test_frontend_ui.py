@@ -30,7 +30,7 @@ class FrontendUiContractTest(unittest.TestCase):
                     with self.subTest(theme=theme, foreground=foreground, background=background):
                         self.assertGreaterEqual((right + 0.05) / (left + 0.05), 4.5)
 
-    def test_preview_is_automatic_and_separate_from_real_devices(self):
+    def test_preview_is_manual_and_separate_from_real_devices(self):
         html = (FRONTEND / "index.html").read_text(encoding="utf-8")
         javascript = (FRONTEND / "app.js").read_text(encoding="utf-8")
 
@@ -40,18 +40,105 @@ class FrontendUiContractTest(unittest.TestCase):
         self.assertIn('<script src="preview.js"></script>', html)
         self.assertIn('      async\n      src="https://unpkg.com/mqtt@', html)
         self.assertIn('id="preview-connect"', html)
+        self.assertIn('id="preview-button" aria-expanded="false"', html)
+        self.assertRegex(html, r'id="preview-notice"[^>]*\bhidden')
+        self.assertIn('Belum ada perangkat', html)
         self.assertIn('data-role="preview-toggle"', html)
-        self.assertIn('dashboards.size === 0 && !previewDashboard', javascript)
+        self.assertIn('function togglePreview()', javascript)
+        self.assertIn('page.previewButton.addEventListener("click", togglePreview);', javascript)
         self.assertIn('if (preview) this.startPreview();', javascript)
         self.assertIn('else this.connect(password);', javascript)
         self.assertIn('clearInterval(previewTimer);', javascript)
-        self.assertIn('previewDashboard.destroy();', javascript)
+        self.assertIn('previewDashboard?.destroy();', javascript)
         self.assertIn('this.ui["device-more"].hidden = true;', javascript)
         self.assertIn('this.ui["broker-lamp"].hidden = true;', javascript)
         self.assertIn('if (!document.hidden)', javascript)
         self.assertIn('if (this.previewPaused || this.closed) return;', javascript)
         self.assertIn('prefers-reduced-motion: reduce', javascript)
         self.assertIn('typeof mqtt === "undefined"', javascript)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js diperlukan untuk uji kontrol preview")
+    def test_preview_lifecycle_requires_explicit_user_action(self):
+        script = """
+            const assert = require('node:assert/strict');
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const source = fs.readFileSync(process.argv[1], 'utf8');
+            const controller = source.slice(source.indexOf('function stopPreview()'),
+                                            source.indexOf('function drawWaveform('));
+            const timers = new Map();
+            const created = [];
+            let nextTimer = 0;
+            const page = Object.fromEntries([
+                'chipDevice', 'chipMode', 'chipModeWrap', 'lampBroker', 'lampBrokerText',
+                'empty', 'previewNotice', 'previewButton', 'connectButton',
+            ].map(name => [name, {dataset: {}, setAttribute(key, value) {this[key] = value;}}]));
+            const context = vm.createContext({
+                page, document: {hidden: false}, dashboards: new Map(), MAX_DASHBOARDS: 6,
+                setInterval(callback, delay) {
+                    assert.equal(delay, 100);
+                    timers.set(++nextTimer, callback);
+                    return nextTimer;
+                },
+                clearInterval(id) {timers.delete(id);},
+                DeviceDashboard: class {
+                    constructor(options) {
+                        assert.equal(options.preview, true);
+                        this.frames = 0;
+                        created.push(this);
+                    }
+                    destroy() {this.destroyed = true;}
+                    advancePreview() {this.frames++;}
+                },
+            });
+            const run = code => vm.runInContext(code, context);
+            run('let previewDashboard = null; let previewTimer = null;' + controller);
+            run('updateSummary();');
+            assert.equal(created.length, 0);
+            assert.equal(timers.size, 0);
+            assert.equal(page.empty.hidden, false);
+            assert.equal(page.previewNotice.hidden, true);
+            assert.equal(page.previewButton['aria-expanded'], 'false');
+
+            run('togglePreview(); updateSummary();');
+            assert.equal(created.length, 1);
+            assert.equal(timers.size, 1);
+            assert.equal(page.empty.hidden, true);
+            assert.equal(page.previewNotice.hidden, false);
+            assert.equal(page.previewButton.textContent, 'Tutup preview');
+            assert.equal(page.previewButton['aria-expanded'], 'true');
+            timers.get(nextTimer)();
+            assert.equal(created[0].frames, 1);
+            context.document.hidden = true;
+            timers.get(nextTimer)();
+            assert.equal(created[0].frames, 1);
+
+            run('togglePreview();');
+            assert.equal(created[0].destroyed, true);
+            assert.equal(timers.size, 0);
+            assert.equal(page.empty.hidden, false);
+            assert.equal(page.previewButton.textContent, 'Preview');
+
+            run('togglePreview();');
+            context.dashboards.set('PPG-TEST', {client: {connected: true}});
+            run('updateSummary(); togglePreview();');
+            assert.equal(created.length, 2);
+            assert.equal(created[1].destroyed, true);
+            assert.equal(timers.size, 0);
+            assert.equal(page.previewButton.disabled, true);
+            assert.equal(page.previewNotice.hidden, true);
+
+            context.dashboards.clear();
+            run('updateSummary();');
+            assert.equal(created.length, 2);
+            assert.equal(timers.size, 0);
+            assert.equal(page.empty.hidden, false);
+            assert.equal(page.previewButton.disabled, false);
+        """
+        subprocess.run(
+            ["node", "-e", script, str(FRONTEND / "app.js")],
+            check=True, capture_output=True, text=True,
+        )
 
     @unittest.skipUnless(shutil.which("node"), "Node.js diperlukan untuk uji pratinjau")
     def test_preview_signal_is_finite_deterministic_and_matches_chart_range(self):

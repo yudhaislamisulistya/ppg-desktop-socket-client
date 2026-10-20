@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
-    <link rel="stylesheet" href="styles.css?v=20261020-preview">
+    <link rel="stylesheet" href="styles.css?v=20261021-manual-preview">
   </head>
   <body>
     <header class="topbar">
@@ -38,9 +38,12 @@
         <h1 id="page-title">Dashboard perangkat</h1>
         <p class="page-description">Sinyal PPG dan parameter alat, dalam satu tampilan.</p>
       </div>
-      <div class="topbar-chips" aria-label="Ringkasan koneksi">
-        <span class="chip"><span class="chip-key">Perangkat</span><span class="chip-val" id="chip-device">0 / 6</span></span>
-        <span class="chip" id="chip-mode-wrap" data-mode="idle"><span class="chip-key">Terhubung</span><span class="chip-val" id="chip-mode">0</span></span>
+      <div class="page-heading-actions">
+        <button type="button" class="ghost-btn" id="preview-button" aria-expanded="false" aria-controls="preview-notice dashboard-grid">Preview</button>
+        <div class="topbar-chips" aria-label="Ringkasan koneksi">
+          <span class="chip"><span class="chip-key">Perangkat</span><span class="chip-val" id="chip-device">0 / 6</span></span>
+          <span class="chip" id="chip-mode-wrap" data-mode="idle"><span class="chip-key">Terhubung</span><span class="chip-val" id="chip-mode">0</span></span>
+        </div>
       </div>
     </section>
 
@@ -80,7 +83,7 @@
       </span>
     </div>
 
-    <section class="preview-notice" id="dashboard-empty" aria-label="Informasi mode pratinjau">
+    <section class="preview-notice" id="preview-notice" aria-label="Informasi mode pratinjau" hidden>
       <span class="preview-symbol" aria-hidden="true">i</span>
       <div><h2>Mode pratinjau <span class="preview-badge">Data simulasi</span></h2>
         <p>Belum ada perangkat ditambahkan. Jelajahi tampilan tanpa alat; data ini bukan hasil pengukuran dan tidak disimpan.</p>
@@ -88,7 +91,15 @@
       <button class="text-btn" id="preview-connect" type="button">Hubungkan alat <span aria-hidden="true">&rarr;</span></button>
     </section>
 
-    <main class="dashboard-grid" id="dashboard-grid" aria-label="Dashboard perangkat PPG"></main>
+    <main class="dashboard-grid" id="dashboard-grid" aria-label="Dashboard perangkat PPG">
+      <section class="dashboard-empty" id="dashboard-empty" aria-labelledby="empty-title">
+        <span class="empty-symbol" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l2.5-6 5 12 2.5-6h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <h2 id="empty-title">Belum ada perangkat</h2>
+        <p>Hubungkan alat untuk melihat data realtime, atau tekan tombol Preview untuk melihat tampilan simulasi.</p>
+      </section>
+    </main>
 
     <footer class="page-footer"><span>Glucometer PPG Merah Putih</span><span>Monitoring melalui MQTT over WebSocket</span></footer>
 
@@ -216,6 +227,6 @@
       crossorigin="anonymous"></script>
     <script src="waveform.js"></script>
     <script src="preview.js"></script>
-    <script src="app.js?v=20261020-preview"></script>
+    <script src="app.js?v=20261021-manual-preview"></script>
   </body>
 </html>

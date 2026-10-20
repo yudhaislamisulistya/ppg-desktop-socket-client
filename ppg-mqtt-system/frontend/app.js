@@ -49,6 +49,8 @@ const page = {
   form: el("conn-form"),
   connection: el("connection"),
   previewConnect: el("preview-connect"),
+  previewButton: el("preview-button"),
+  previewNotice: el("preview-notice"),
   username: el("username"),
   password: el("password"),
   deviceId: el("device-id"),
@@ -138,6 +140,26 @@ function hidePageAlert() {
   page.alert.hidden = true;
 }
 
+function stopPreview() {
+  clearInterval(previewTimer);
+  previewTimer = null;
+  previewDashboard?.destroy();
+  previewDashboard = null;
+}
+
+function togglePreview() {
+  if (dashboards.size > 0) return;
+  if (previewDashboard) {
+    stopPreview();
+  } else {
+    previewDashboard = new DeviceDashboard({ deviceId: "PPG-DEMO", preview: true });
+    previewTimer = setInterval(() => {
+      if (!document.hidden) previewDashboard?.advancePreview();
+    }, 100);
+  }
+  updateSummary();
+}
+
 function updateSummary() {
   const connected = [...dashboards.values()].filter(
     (dashboard) => dashboard.client?.connected,
@@ -157,18 +179,16 @@ function updateSummary() {
     page.lampBrokerText.textContent = "belum ada koneksi";
   }
 
-  page.empty.hidden = dashboards.size !== 0;
-  if (dashboards.size === 0 && !previewDashboard) {
-    previewDashboard = new DeviceDashboard({ deviceId: "PPG-DEMO", preview: true });
-    previewTimer = setInterval(() => {
-      if (!document.hidden) previewDashboard?.advancePreview();
-    }, 100);
-  } else if (dashboards.size > 0 && previewDashboard) {
-    clearInterval(previewTimer);
-    previewTimer = null;
-    previewDashboard.destroy();
-    previewDashboard = null;
-  }
+  if (dashboards.size > 0 && previewDashboard) stopPreview();
+  const previewVisible = Boolean(previewDashboard);
+  page.empty.hidden = dashboards.size !== 0 || previewVisible;
+  page.previewNotice.hidden = !previewVisible;
+  page.previewButton.textContent = previewVisible ? "Tutup preview" : "Preview";
+  page.previewButton.setAttribute("aria-expanded", String(previewVisible));
+  page.previewButton.disabled = dashboards.size > 0;
+  page.previewButton.title = dashboards.size > 0
+    ? "Putuskan seluruh panel perangkat untuk membuka preview."
+    : "Tampilkan atau tutup dashboard dengan data simulasi.";
   page.connectButton.disabled = dashboards.size >= MAX_DASHBOARDS;
 }
 
@@ -871,6 +891,7 @@ page.username.addEventListener("input", () => {
 page.themeToggle.addEventListener("click", () => {
   applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
 });
+page.previewButton.addEventListener("click", togglePreview);
 page.previewConnect.addEventListener("click", () => {
   page.connection.open = true;
   page.deviceId.focus();
@@ -880,8 +901,7 @@ window.addEventListener("resize", () => {
   previewDashboard?.drawChart();
 });
 window.addEventListener("beforeunload", () => {
-  clearInterval(previewTimer);
-  previewDashboard?.destroy();
+  stopPreview();
   dashboards.forEach((dashboard) => dashboard.destroy());
 });
 

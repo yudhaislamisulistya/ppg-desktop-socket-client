@@ -279,8 +279,10 @@ http://IP_SERVER:9100
 
 Jika `FRONTEND_PORT` diubah pada `.env`, gunakan port tersebut pada URL.
 
-Halaman awal menampilkan pratinjau otomatis `PPG-DEMO` sebelum perangkat
-ditambahkan. Waveform, enam parameter, dan 13 koefisien MFCC memakai data
+Halaman awal tidak menampilkan perangkat simulasi. Tekan **Preview** untuk
+membuka pratinjau `PPG-DEMO`, lalu **Tutup preview** untuk menutupnya. Pilihan
+ini tidak disimpan; setelah halaman dimuat ulang, preview kembali tertutup.
+Waveform, enam parameter, dan 13 koefisien MFCC pada preview memakai data
 simulasi yang diberi label, bukan hasil pengukuran. Pratinjau tidak membuat
 koneksi MQTT, tidak memublikasikan pesan, tidak membuat sesi perekaman, dan
 tidak menyimpan data ke database. Animasi dapat dijeda dan otomatis dijeda
@@ -289,7 +291,9 @@ untuk pengguna dengan preferensi pengurangan gerakan.
 Buka **Hubungkan perangkat** atau tombol **Hubungkan alat** untuk menampilkan
 form Device ID, Username, dan Password. Pratinjau dihentikan serta dihapus
 saat perangkat ditambahkan agar data simulasi tidak tercampur dengan data
-alat. Setelah semua panel perangkat diputuskan, pratinjau muncul kembali.
+alat. Saat panel perangkat aktif, tombol Preview dinonaktifkan. Setelah
+semua panel perangkat diputuskan, halaman kembali ke keadaan kosong dan
+preview hanya muncul jika tombol **Preview** ditekan lagi.
 Grafik MFCC tersedia langsung di samping waveform; buka **Detail koefisien
 MFCC** untuk melihat nilai C01 sampai C13. Hasil perekaman dan diagnostik MQTT
 tersedia melalui panel terpisah yang dapat dibuka. Tema terang dan gelap
