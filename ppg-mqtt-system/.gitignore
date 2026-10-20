@@ -1,4 +1,6 @@
 .env
+.env.frontend
+deploy/frontend/credentials.json
 __pycache__/
 *.py[cod]
 *.sqlite3

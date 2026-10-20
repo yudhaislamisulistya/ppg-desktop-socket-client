@@ -299,6 +299,50 @@ MQTT TCP alat     : 202.141.15.3:1883
 MQTT WebSocket    : ws://202.141.15.3:9001
 ```
 
+### Deployment frontend di glucometer.sivia.id
+
+Frontend dapat dijalankan terpisah pada server `100.90.129.102` dengan checkout
+repository di `/home/sivia/sivia-glucometer`. Deployment ini menjalankan Nginx
+dan Cloudflare Tunnel dalam project Compose `sivia-glucometer`. Koneksi realtime
+browser tetap memakai `wss://mqtt-glucometer.sivia.id:443/mqtt`; broker dan data
+PostgreSQL tetap berada pada deployment MQTT yang sudah berjalan.
+
+Siapkan tunnel menggunakan autentikasi Cloudflare yang sudah tersedia pada
+server tujuan:
+
+```bash
+cloudflared tunnel create sivia-glucometer
+cloudflared tunnel route dns UUID_TUNNEL glucometer.sivia.id
+cd /home/sivia/sivia-glucometer/ppg-mqtt-system
+cp .env.frontend.example .env.frontend
+```
+
+Isi `GLUCOMETER_TUNNEL_ID` pada `.env.frontend` dengan UUID tunnel tersebut.
+Pasang kredensial tunnel yang dibuat Cloudflared pada direktori deployment:
+
+```bash
+install -o root -g 65532 -m 0640 /root/.cloudflared/UUID_TUNNEL.json deploy/frontend/credentials.json
+docker compose --env-file .env.frontend -f compose.frontend.yaml config -q
+docker compose --env-file .env.frontend -f compose.frontend.yaml up -d --wait
+docker compose --env-file .env.frontend -f compose.frontend.yaml ps
+curl -fsS http://127.0.0.1:8098/health
+curl -fsS https://glucometer.sivia.id/health
+```
+
+Port `8098` hanya terikat pada loopback server. Tunnel mengakses Nginx melalui
+alamat `http://frontend:8080` di jaringan Compose. Kedua service memiliki
+healthcheck, kebijakan restart otomatis, dan rotasi log. File kredensial tunnel
+dan `.env.frontend` dikecualikan dari Git.
+
+Untuk pembaruan frontend:
+
+```bash
+cd /home/sivia/sivia-glucometer
+git pull --ff-only
+cd ppg-mqtt-system
+docker compose --env-file .env.frontend -f compose.frontend.yaml up -d --wait
+```
+
 ## 6. Konfigurasi dan jalankan `pp2.py` pada Raspberry Pi
 
 Clone atau salin repository dengan struktur folder tetap, lalu:

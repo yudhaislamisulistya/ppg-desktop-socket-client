@@ -1,0 +1,7 @@
+credentials-file: /etc/cloudflared/credentials.json
+metrics: 0.0.0.0:2000
+
+ingress:
+  - hostname: glucometer.sivia.id
+    service: http://frontend:8080
+  - service: http_status:404
