@@ -307,12 +307,13 @@ dan Cloudflare Tunnel dalam project Compose `sivia-glucometer`. Koneksi realtime
 browser tetap memakai `wss://mqtt-glucometer.sivia.id:443/mqtt`; broker dan data
 PostgreSQL tetap berada pada deployment MQTT yang sudah berjalan.
 
-Siapkan tunnel menggunakan autentikasi Cloudflare yang sudah tersedia pada
-server tujuan:
+Siapkan tunnel menggunakan autentikasi Cloudflare untuk zona `sivia.id` yang
+sudah tersedia pada server tujuan. Pilih sertifikat secara eksplisit karena
+sertifikat bawaan server dapat terhubung ke zona domain lain:
 
 ```bash
-cloudflared tunnel create sivia-glucometer
-cloudflared tunnel route dns UUID_TUNNEL glucometer.sivia.id
+cloudflared tunnel --origincert /root/.cloudflared/sivia-id-login/cert.pem create sivia-glucometer
+cloudflared tunnel --origincert /root/.cloudflared/sivia-id-login/cert.pem route dns UUID_TUNNEL glucometer.sivia.id
 cd /home/sivia/sivia-glucometer/ppg-mqtt-system
 cp .env.frontend.example .env.frontend
 ```
