@@ -202,6 +202,20 @@ select { width: 100%; min-width: 0; min-height: 42px; border: 1px solid var(--li
 .pagination-pages .ghost-btn { min-width: 36px; min-height: 38px; padding-inline: 8px; }
 .pagination-pages [aria-current="page"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .result-history { margin-top: 16px; text-align: left; }
+.patient-status-dialog { width: min(480px, calc(100% - 32px)); max-height: calc(100dvh - 32px); margin: auto; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; background: var(--bg-panel); color: var(--text); box-shadow: 0 24px 80px #00000033; }
+.patient-status-dialog::backdrop { background: #00000066; }
+.patient-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.patient-status-head h2 { margin-top: 4px; font-size: 22px; font-weight: 600; }
+.patient-status-close { min-width: 40px; min-height: 40px; font-size: 22px; line-height: 1; }
+.patient-status-context { margin-top: 18px; overflow-wrap: anywhere; font-weight: 500; }
+#patient-status-description { margin-top: 8px; color: var(--text-dim); font-size: 12px; }
+#patient-status-form { display: grid; gap: 16px; margin-top: 22px; }
+.patient-status-dialog select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--bg-input); color: var(--text); font-size: 16px; }
+.patient-status-message { color: var(--text-dim); font-size: 12px; overflow-wrap: anywhere; }
+.patient-status-message:empty { display: none; }
+.patient-status-message[data-state="error"] { color: var(--rec); }
+.patient-status-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; border-top: 1px solid var(--line-soft); padding-top: 16px; }
+.patient-status-actions button { min-height: 44px; }
 .dashboard-empty { display: grid; justify-items: center; gap: 10px; border: 1px solid var(--line); border-radius: var(--radius); padding: 52px 24px; background: var(--bg-panel); text-align: center; }
 .empty-symbol { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 4px; border-radius: 14px; background: var(--bg-raised); color: var(--text-faint); }
 .empty-symbol svg { width: 30px; height: 30px; }

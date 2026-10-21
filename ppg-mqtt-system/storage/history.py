@@ -49,10 +49,14 @@ def handle_history_request(database, device_id, payload):
             rows = database.list_history(device_id, limit=limit + 1, offset=offset)
             response["data"] = {"measurements": rows[:limit], "has_more": len(rows) > limit,
                                 "total": database.count_history(device_id)}
-        elif action == "set_label":
+        elif action in ("get_label", "set_label"):
             measurement_id = payload.get("measurement_id")
             if not isinstance(measurement_id, str) or not 1 <= len(measurement_id) <= 200:
                 raise ValueError("ID rekaman tidak valid.")
+            if action == "get_label":
+                response["data"] = {"measurement": database.get_history_label(device_id, measurement_id)}
+                response["ok"] = True
+                return topic, encode_response(response)
             if "diabetes_label" not in payload:
                 raise ValueError("diabetes_label wajib ada; gunakan null untuk belum diisi.")
             if payload["diabetes_label"] is not None and type(payload["diabetes_label"]) is not bool:

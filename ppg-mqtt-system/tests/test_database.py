@@ -199,6 +199,13 @@ class StorageDatabaseIntegrationTest(unittest.TestCase):
         self.assertNotIn(other_id, [row["id"] for row in rows])
         self.assertNotIn(recording_id, [row["id"] for row in rows])
         self.assertIsNone(next(row for row in rows if row["id"] == completed_id)["diabetes_label"])
+        label = self.db.get_history_label("PPG-HISTORY-TEST", completed_id)
+        self.assertEqual(label["id"], completed_id)
+        self.assertIsNone(label["diabetes_label"])
+        self.assertEqual(set(label), {"id", "device_id", "patient_name", "diabetes_label", "label_updated_at"})
+        self.assertIsNone(self.db.get_history_label("PPG-HISTORY-OTHER", completed_id))
+        self.assertIsNone(self.db.get_history_label("PPG-HISTORY-TEST", recording_id))
+        self.assertIsNone(self.db.get_history_label("PPG-HISTORY-TEST", "missing"))
         self.assertIsNone(self.db.update_diabetes_label(
             device_id="PPG-HISTORY-OTHER", measurement_id=completed_id, label=True, updated_at=self.received_at))
         self.assertIsNone(self.db.update_diabetes_label(
@@ -212,6 +219,7 @@ class StorageDatabaseIntegrationTest(unittest.TestCase):
                 label=label, updated_at=self.received_at,
             )
             self.assertIs(row["diabetes_label"], label)
+            self.assertIs(self.db.get_history_label("PPG-HISTORY-TEST", measurement_id)["diabetes_label"], label)
             self.db.finish_measurement(device_id="PPG-HISTORY-TEST", payload=result, received_at=result["finished_at"])
             self.assertIs(self.db.get_measurement(measurement_id)["diabetes_label"], label)
         reopened = StorageDatabase(TEST_DATABASE_URL)

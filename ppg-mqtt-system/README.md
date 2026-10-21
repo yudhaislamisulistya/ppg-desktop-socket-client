@@ -319,9 +319,14 @@ panel data MQTT.
 ### History perekaman dan label diabetes
 
 1. Hubungkan akun alat melalui Device ID, Username, dan Password MQTT yang sama.
-2. Setelah Submit pada desktop dan perekaman 300 detik selesai, notifikasi
-   **Perekaman selesai** menyediakan tombol **Lihat di History**. Menu **History**
-   juga dapat dibuka langsung untuk membaca rekaman sebelumnya.
+2. Setelah Submit pada desktop dan perekaman 300 detik selesai, frontend
+   otomatis membuka popup **Status pasien**. Pilih **Diabetes** atau **Tidak
+   diabetes**, lalu tekan **Simpan status**. Popup memuat nama pasien dan status
+   tersimpan dari PostgreSQL sebelum mengaktifkan pengisian. Pilihan awal rekaman
+   yang belum diberi label adalah **Belum diisi**, bukan salah satu kategori.
+   Tekan **Isi nanti**, tombol **×**, atau **Escape** untuk menutup tanpa mengubah
+   label. Rekaman tetap tersimpan dan dapat dibuka melalui **Lihat di History**
+   atau menu **History**.
 3. Pilih perangkat pada History. Rekaman dibaca dari PostgreSQL melalui service
    `storage`, diurutkan dari yang terbaru, 10 rekaman per halaman. Pilih jumlah
    baris **10**, **20**, atau **50**, lalu gunakan nomor halaman, **Sebelumnya**,
@@ -347,6 +352,14 @@ preview tidak masuk History; sesi yang dibatalkan tidak dianggap rekaman selesai
 Frontend menunggu dan mencoba ulang jika notifikasi selesai diterima sebelum
 transaksi hasil tersimpan. Jika storage tidak merespons, frontend menampilkan
 kesalahan dan tidak mengklaim label sudah tersimpan.
+Popup hanya dipicu oleh hasil `completed` yang baru diterima, bukan preview,
+sesi batal, atau pesan hasil yang di-retain. Duplikasi hasil MQTT tidak membuka
+popup berulang untuk rekaman yang sama selama halaman aktif. Jika beberapa
+rekaman selesai bersamaan, popup ditampilkan bergantian agar pilihan status
+tidak berpindah ke pasien lain. Menutup popup saat penyimpanan status sedang
+berjalan tidak membatalkan permintaan yang sudah dikirim; hasilnya dapat
+diperiksa melalui History. Popup mendukung tema terang/gelap, layar ponsel,
+navigasi Tab/Shift+Tab, dan Escape.
 
 Jalur komunikasi tetap frontend → MQTT WSS → `storage` → PostgreSQL, tanpa
 API publik atau koneksi PostgreSQL langsung dari browser. Akun alat hanya boleh
@@ -356,10 +369,15 @@ menulis balasan. Respons menggunakan `request_id`, QoS 1, dan tidak di-retain.
 Izin alat tidak mencakup perangkat lain atau publikasi balasan History.
 Permintaan `list` memakai `limit` dan `offset`; respons menyertakan `total`
 rekaman selesai untuk perangkat yang diminta. Pagination dilakukan di service
-storage, bukan dengan mengunduh seluruh History ke browser. Untuk pembaruan
+storage, bukan dengan mengunduh seluruh History ke browser. Popup membaca status
+melalui aksi `get_label` dengan `measurement_id`, lalu menyimpan pilihan melalui
+`set_label`. Pembacaan dan perubahan hanya berlaku pada rekaman `completed`
+300 detik milik perangkat di topic permintaan. `get_label` mengembalikan
+`measurement: null` jika hasil belum tersedia, tanpa membuat rekaman atau label.
+Untuk pembaruan
 dari versi History yang sudah berjalan, perbarui dan bangun ulang service
 `storage` terlebih dahulu sebelum menerbitkan aset frontend baru. Tidak ada
-perubahan skema PostgreSQL pada pembaruan tabel dan pagination ini.
+perubahan skema PostgreSQL pada pembaruan History dan popup ini.
 
 Pada broker yang sudah berjalan, terapkan pembaruan ACL sebelum menjalankan
 versi storage dan frontend yang baru:

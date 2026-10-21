@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
-    <link rel="stylesheet" href="styles.css?v=20261021-history-table">
+    <link rel="stylesheet" href="styles.css?v=20261021-patient-status">
   </head>
   <body>
     <header class="topbar">
@@ -157,6 +157,28 @@
       </nav>
     </section>
 
+    <dialog class="patient-status-dialog" id="patient-status-dialog" aria-labelledby="patient-status-title" aria-describedby="patient-status-description">
+      <header class="patient-status-head">
+        <div><p class="eyebrow">Perekaman 5 menit selesai</p><h2 id="patient-status-title">Status pasien</h2></div>
+        <button type="button" class="ghost-btn patient-status-close" id="patient-status-close" aria-label="Tutup pengisian status pasien">&times;</button>
+      </header>
+      <p class="patient-status-context" id="patient-status-context"></p>
+      <p id="patient-status-description">Pengisian opsional dan manual, bukan hasil prediksi. Anda dapat menutup popup dan mengisi atau mengubah status nanti melalui History.</p>
+      <form id="patient-status-form">
+        <label class="field" for="patient-status-label">Status diabetes (opsional)
+          <select id="patient-status-label" disabled>
+            <option value="">Belum diisi</option><option value="true">Diabetes</option><option value="false">Tidak diabetes</option>
+          </select>
+        </label>
+        <p class="patient-status-message" id="patient-status-message" role="status" aria-live="polite"></p>
+        <button type="button" class="text-btn" id="patient-status-retry" hidden>Coba lagi</button>
+        <div class="patient-status-actions">
+          <button type="button" class="ghost-btn" id="patient-status-later">Isi nanti</button>
+          <button type="submit" class="primary-btn" id="patient-status-save" disabled>Simpan status</button>
+        </div>
+      </form>
+    </dialog>
+
     <footer class="page-footer"><span>Glucometer PPG Merah Putih</span><span>Monitoring melalui MQTT over WebSocket</span></footer>
 
     <template id="device-dashboard-template">
@@ -284,7 +306,7 @@
       crossorigin="anonymous"></script>
     <script src="waveform.js"></script>
     <script src="preview.js"></script>
-    <script src="history.js?v=20261021-history-table"></script>
-    <script src="app.js?v=20261021-history-table"></script>
+    <script src="history.js?v=20261021-patient-status"></script>
+    <script src="app.js?v=20261021-patient-status"></script>
   </body>
 </html>

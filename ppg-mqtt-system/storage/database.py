@@ -289,6 +289,17 @@ class StorageDatabase:
             (device_id, max(1, min(101, int(limit))), max(0, int(offset))),
         ).fetchall()
 
+    def get_history_label(self, device_id: str, measurement_id: str) -> dict[str, Any] | None:
+        return self.connection.execute(
+            """
+            SELECT id, device_id, patient_name, diabetes_label, label_updated_at
+            FROM measurements
+            WHERE id = %s AND device_id = %s
+              AND status = 'completed' AND duration_seconds = 300
+            """,
+            (measurement_id, device_id),
+        ).fetchone()
+
     def update_diabetes_label(
         self, *, device_id: str, measurement_id: str, label: bool | None, updated_at: str,
     ) -> dict[str, Any] | None:

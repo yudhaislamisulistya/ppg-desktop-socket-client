@@ -82,7 +82,7 @@ class FrontendUiContractTest(unittest.TestCase):
         self.assertIn('new Option("Belum diisi", "")', history)
         self.assertIn('new Option("Diabetes", "true")', history)
         self.assertIn('new Option("Tidak diabetes", "false")', history)
-        self.assertIn('diabetes_label: select.value === "" ? null : select.value === "true"', history)
+        self.assertIn('this.saveLabel(device, row.id, select.value === "" ? null : select.value === "true")', history)
         self.assertNotIn('select.required', history)
         self.assertNotIn('localStorage.', history)
         self.assertIn('device.requestHistory("list"', history)

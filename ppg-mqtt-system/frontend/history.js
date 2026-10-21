@@ -15,9 +15,10 @@ function historyPageNumbers(current, total) {
 }
 
 class MeasurementHistory {
-  constructor({ getDevices, onOpen, formatNumber }) {
+  constructor({ getDevices, onOpen, onLabelSaved, formatNumber }) {
     this.getDevices = getDevices;
     this.onOpen = onOpen;
+    this.onLabelSaved = onLabelSaved;
     this.formatNumber = formatNumber;
     this.ui = Object.fromEntries(["panel", "device", "refresh", "status", "list", "badge",
       "table-wrap", "pagination", "page-info", "pages", "previous", "next", "page-size", "scroll-hint"]
@@ -29,6 +30,32 @@ class MeasurementHistory {
     this.expected = new Map();
     this.drafts = new Map();
     this.saving = new Set();
+    this.prompt = Object.fromEntries(["dialog", "form", "context", "label", "save", "later", "close", "message", "retry"]
+      .map((key) => [key, document.getElementById(`patient-status-${key}`)]));
+    this.labelQueue = [];
+    this.prompted = new Set();
+    this.activePrompt = null;
+    this.prompt.close.addEventListener("click", () => this.prompt.dialog.close());
+    this.prompt.later.addEventListener("click", () => this.prompt.dialog.close());
+    this.prompt.dialog.addEventListener("close", () => {
+      this.activePrompt = null;
+      this.showNextPrompt();
+    });
+    this.prompt.dialog.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab") return;
+      const controls = [...this.prompt.dialog.querySelectorAll("button, select")].filter((control) => !control.disabled && !control.hidden);
+      const first = controls[0], last = controls[controls.length - 1];
+      if ((event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      }
+    });
+    this.prompt.label.addEventListener("change", () => this.updatePromptControls());
+    this.prompt.retry.addEventListener("click", () => this.loadPrompt());
+    this.prompt.form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.savePrompt();
+    });
     this.ui.device.addEventListener("change", () => this.load({ page: 1 }));
     this.ui.refresh.addEventListener("click", () => this.load());
     this.ui["page-size"].addEventListener("change", () => this.load({ page: 1 }));
@@ -49,6 +76,8 @@ class MeasurementHistory {
     this.ui.device.value = devices.includes(previous) ? previous : devices[0] || "";
     for (const [id, draft] of this.drafts) if (!devices.includes(draft.deviceId)) this.drafts.delete(id);
     for (const id of this.expected.keys()) if (!devices.includes(id)) this.expected.delete(id);
+    this.labelQueue = this.labelQueue.filter((item) => devices.includes(item.deviceId));
+    if (this.activePrompt && !devices.includes(this.activePrompt.deviceId)) this.prompt.dialog.close();
     if (previous !== this.ui.device.value || !devices.length) {
       this.rows = [];
       this.currentPage = 1;
@@ -74,9 +103,129 @@ class MeasurementHistory {
   }
 
   notifyCompleted(deviceId, measurementId) {
-    if (measurementId) this.expected.set(deviceId, measurementId);
+    if (typeof measurementId !== "string" || !measurementId || measurementId.length > 200
+      || !this.getDevices().has(deviceId) || this.getDevices().get(deviceId).preview) return;
+    const key = `${deviceId}\0${measurementId}`;
+    if (this.prompted.has(key)) return;
+    this.prompted.add(key);
+    this.expected.set(deviceId, measurementId);
     this.ui.badge.hidden = false;
     if (!this.ui.panel.hidden && this.ui.device.value === deviceId) this.load({ page: 1 });
+    this.labelQueue.push({ deviceId, measurementId });
+    this.showNextPrompt();
+  }
+
+  showNextPrompt() {
+    if (this.activePrompt || this.prompt.dialog.open) return;
+    let item;
+    while ((item = this.labelQueue.shift())) {
+      item.device = this.getDevices().get(item.deviceId);
+      if (!item.device) continue;
+      this.activePrompt = item;
+      this.prompt.context.textContent = `${item.deviceId} · Rekaman ${item.measurementId}`;
+      this.prompt.dialog.showModal();
+      this.loadPrompt();
+      break;
+    }
+  }
+
+  updatePromptControls() {
+    const item = this.activePrompt;
+    const disabled = !item?.record || item.loading || this.saving.has(item.measurementId);
+    this.prompt.label.disabled = Boolean(disabled);
+    const saved = item?.record?.diabetes_label;
+    this.prompt.save.disabled = Boolean(disabled) || this.prompt.label.value === (saved === true ? "true" : saved === false ? "false" : "");
+  }
+
+  async loadPrompt() {
+    const item = this.activePrompt;
+    if (!item || item.loading) return;
+    item.loading = true;
+    item.record = null;
+    this.prompt.label.value = "";
+    this.prompt.retry.hidden = true;
+    this.prompt.message.dataset.state = "loading";
+    this.prompt.message.textContent = "Memastikan rekaman sudah tersimpan di PostgreSQL…";
+    this.prompt.form.setAttribute("aria-busy", "true");
+    this.updatePromptControls();
+    try {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const data = await item.device.requestHistory("get_label", { measurement_id: item.measurementId });
+        if (this.activePrompt !== item) return;
+        const row = data?.measurement;
+        if (row === null && attempt < 5) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          if (this.activePrompt !== item) return;
+          continue;
+        }
+        if (row === null) throw new Error("Rekaman belum tersedia. Periksa service storage atau isi status nanti di History.");
+        if (!row || row.id !== item.measurementId || row.device_id !== item.deviceId
+          || ![true, false, null].includes(row.diabetes_label)) throw new Error("Respons status pasien tidak valid.");
+        item.record = row;
+        this.prompt.context.textContent = `${row.patient_name || "Nama pasien belum tersedia"} · ${item.deviceId}`;
+        this.prompt.label.value = row.diabetes_label === true ? "true" : row.diabetes_label === false ? "false" : "";
+        this.prompt.message.dataset.state = "ready";
+        this.prompt.message.textContent = "Rekaman sudah tersimpan. Pilih status lalu tekan Simpan status, atau pilih Isi nanti.";
+        break;
+      }
+    } catch (error) {
+      if (this.activePrompt === item) {
+        this.prompt.message.dataset.state = "error";
+        this.prompt.message.textContent = `Status belum dapat dimuat. ${error.message}`;
+        this.prompt.retry.hidden = false;
+      }
+    } finally {
+      if (this.activePrompt === item) {
+        item.loading = false;
+        this.prompt.form.setAttribute("aria-busy", "false");
+        this.updatePromptControls();
+      }
+    }
+  }
+
+  async saveLabel(device, measurementId, label) {
+    if (this.saving.has(measurementId)) throw new Error("Status rekaman ini sedang disimpan. Tunggu hingga selesai.");
+    this.saving.add(measurementId);
+    this.updatePromptControls();
+    try {
+      const result = await device.requestHistory("set_label", { measurement_id: measurementId, diabetes_label: label });
+      if (result?.id !== measurementId || result.diabetes_label !== label) throw new Error("Respons penyimpanan status tidak valid.");
+      if (this.ui.device.value === device.deviceId) {
+        const row = this.rows.find((item) => item.id === measurementId);
+        if (row) Object.assign(row, { diabetes_label: result.diabetes_label, label_updated_at: result.label_updated_at });
+      }
+      if (this.activePrompt?.deviceId === device.deviceId && this.activePrompt.measurementId === measurementId && this.activePrompt.record) {
+        Object.assign(this.activePrompt.record, result);
+        this.prompt.label.value = label === true ? "true" : label === false ? "false" : "";
+      }
+      this.drafts.delete(measurementId);
+      return result;
+    } finally {
+      this.saving.delete(measurementId);
+      this.updatePromptControls();
+    }
+  }
+
+  async savePrompt() {
+    const item = this.activePrompt;
+    if (!item?.record || item.loading || this.prompt.save.disabled) return;
+    const label = this.prompt.label.value === "" ? null : this.prompt.label.value === "true";
+    this.prompt.message.dataset.state = "loading";
+    this.prompt.message.textContent = "Menyimpan status pasien… Anda tetap dapat menutup popup.";
+    try {
+      const pending = this.saveLabel(item.device, item.measurementId, label);
+      if (this.ui.device.value === item.deviceId) this.render(item.device);
+      await pending;
+      this.onLabelSaved?.(item.deviceId);
+      if (this.activePrompt === item) this.prompt.dialog.close();
+    } catch (error) {
+      if (this.activePrompt === item) {
+        this.prompt.message.dataset.state = "error";
+        this.prompt.message.textContent = `Status belum terkonfirmasi. ${error.message} Periksa melalui History sebelum mencoba lagi.`;
+      }
+    } finally {
+      if (this.ui.device.value === item.deviceId && this.getDevices().get(item.deviceId) === item.device) this.render(item.device);
+    }
   }
 
   setBusy(busy) {
@@ -239,25 +388,18 @@ class MeasurementHistory {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         if (this.saving.has(row.id)) return;
-        this.saving.add(row.id);
         select.disabled = true;
         save.disabled = true;
         status.textContent = "Menyimpan label…";
         try {
-          const result = await device.requestHistory("set_label", {
-            measurement_id: row.id, diabetes_label: select.value === "" ? null : select.value === "true",
-          });
+          const result = await this.saveLabel(device, row.id, select.value === "" ? null : select.value === "true");
           row.diabetes_label = result.diabetes_label;
           row.label_updated_at = result.label_updated_at;
-          const current = this.rows.find((item) => item.id === row.id);
-          if (current) Object.assign(current, { diabetes_label: result.diabetes_label, label_updated_at: result.label_updated_at });
-          this.drafts.delete(row.id);
           select.value = savedValue();
           status.textContent = `Label tersimpan. ${this.date(row.label_updated_at)}`;
         } catch (error) {
           status.textContent = `Label belum terkonfirmasi. ${error.message} Muat ulang untuk memeriksa.`;
         } finally {
-          this.saving.delete(row.id);
           select.disabled = false;
           save.disabled = select.value === savedValue();
           if (!entry.isConnected && this.ui.device.value === device.deviceId) this.render(device);

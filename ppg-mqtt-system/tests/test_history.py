@@ -143,6 +143,19 @@ class HistoryProtocolTest(unittest.TestCase):
         self.database.update_diabetes_label.return_value = None
         self.assertFalse(self.response(action="set_label", measurement_id="record-1", diabetes_label=True)["ok"])
 
+    def test_popup_reads_only_the_selected_devices_completed_recording_label(self):
+        self.database.get_history_label.return_value = {"id": "record-1", "device_id": "PPG-001", "diabetes_label": False}
+        response = self.response(action="get_label", measurement_id="record-1")
+        self.assertTrue(response["ok"])
+        self.assertIs(response["data"]["measurement"]["diabetes_label"], False)
+        self.database.get_history_label.assert_called_once_with("PPG-001", "record-1")
+        self.database.update_diabetes_label.assert_not_called()
+        self.database.get_history_label.return_value = None
+        self.assertIsNone(self.response(action="get_label", measurement_id="pending")["data"]["measurement"])
+        for identifier in (None, "", True, 1, "x" * 201):
+            with self.subTest(identifier=identifier):
+                self.assertFalse(self.response(action="get_label", measurement_id=identifier)["ok"])
+
     def test_history_acl_migration_is_idempotent_and_preserves_other_permissions(self):
         original = ("user storage\ntopic read ppg/+/raw\n\nuser dashboard\ntopic read ppg/+/metrics\n"
                     "# BEGIN DEVICE PPG-001\nuser PPG-001\ntopic readwrite ppg/PPG-001/raw\n# END DEVICE PPG-001\n")

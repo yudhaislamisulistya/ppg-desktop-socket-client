@@ -652,7 +652,7 @@ class DeviceDashboard {
     });
   }
 
-  handleMessage(topic, buffer) {
+  handleMessage(topic, buffer, packet = {}) {
     let payload;
     try {
       payload = JSON.parse(buffer.toString());
@@ -725,15 +725,18 @@ class DeviceDashboard {
     }
 
     if (suffix === "measurement/result") {
+      const completed300 = payload.status === "completed"
+        && (payload.duration_seconds === undefined || Number(payload.duration_seconds) === 300)
+        && (this.durationSeconds === null || this.durationSeconds === 300);
       this.setMode(payload.status === "cancelled" ? "cancelled" : "completed", null);
       this.startedAt = null;
       this.durationSeconds = null;
       this.renderResult(payload);
-      if ((payload.status || "completed") === "completed" && payload.measurement_id && !this.preview) {
+      if (completed300 && payload.measurement_id && !this.preview && !packet.retain) {
         lastCompletedDevice = this.deviceId;
         history.notifyCompleted(this.deviceId, payload.measurement_id);
         page.completion.hidden = false;
-        page.completionMessage.textContent = `${this.deviceId}: perekaman selesai. Buka History untuk melihat hasil dan mengisi label opsional.`;
+        page.completionMessage.textContent = `${this.deviceId}: perekaman selesai. Status pasien boleh diisi sekarang atau nanti melalui History.`;
       }
     }
   }
@@ -862,7 +865,7 @@ class DeviceDashboard {
           : message,
       );
     });
-    client.on("message", (topic, buffer) => this.handleMessage(topic, buffer));
+    client.on("message", (topic, buffer, packet) => this.handleMessage(topic, buffer, packet));
   }
 
   tick() {
@@ -1002,7 +1005,14 @@ function addDashboard(credentials) {
   updateSummary();
 }
 
-const history = new MeasurementHistory({ getDevices: () => dashboards, onOpen: () => showView("history"), formatNumber });
+const history = new MeasurementHistory({
+  getDevices: () => dashboards, onOpen: () => showView("history"), formatNumber,
+  onLabelSaved: (deviceId) => {
+    lastCompletedDevice = deviceId;
+    page.completion.hidden = false;
+    page.completionMessage.textContent = `${deviceId}: status pasien berhasil disimpan. Anda dapat mengubahnya kembali melalui History.`;
+  },
+});
 
 page.form.addEventListener("submit", (event) => {
   event.preventDefault();
