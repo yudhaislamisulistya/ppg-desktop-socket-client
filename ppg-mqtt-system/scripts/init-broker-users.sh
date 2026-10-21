@@ -54,4 +54,5 @@ docker run --rm \
   "$IMAGE" \
   sh -c "chown mosquitto:mosquitto /mosquitto/config/passwords && chmod 600 /mosquitto/config/passwords"
 
+python3 "$ROOT_DIR/scripts/upgrade-history-acl.py"
 echo "Akun storage dan dashboard siap."

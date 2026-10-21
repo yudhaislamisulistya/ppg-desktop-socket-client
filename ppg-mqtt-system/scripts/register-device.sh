@@ -73,6 +73,8 @@ awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" '
   printf "topic readwrite ppg/%s/measurement/result\n" "$DEVICE_ID"
   printf "topic readwrite ppg/%s/status\n" "$DEVICE_ID"
   printf "topic read ppg/%s/command\n" "$DEVICE_ID"
+  printf "topic write ppg/%s/history/request\n" "$DEVICE_ID"
+  printf "topic read ppg/%s/history/response/#\n" "$DEVICE_ID"
   printf "%s\n" "$END_MARKER"
 } >> "$TEMP_ACL"
 

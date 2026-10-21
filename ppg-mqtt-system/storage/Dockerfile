@@ -5,6 +5,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py database.py ./
+COPY app.py database.py history.py ./
 
 CMD ["python", "-u", "app.py"]

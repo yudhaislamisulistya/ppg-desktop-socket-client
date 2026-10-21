@@ -11,6 +11,23 @@ FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 
 
 class FrontendUiContractTest(unittest.TestCase):
+    def test_history_is_persistent_and_label_is_optional_and_manual(self):
+        html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+        history = (FRONTEND / "history.js").read_text(encoding="utf-8")
+        javascript = (FRONTEND / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="history-button"', html)
+        self.assertIn('id="history-panel"', html)
+        self.assertIn('Label diabetes diisi manual, opsional', html)
+        self.assertIn('new Option("Belum diisi", "")', history)
+        self.assertIn('new Option("Diabetes", "true")', history)
+        self.assertIn('new Option("Tidak diabetes", "false")', history)
+        self.assertIn('diabetes_label: select.value === "" ? null : select.value === "true"', history)
+        self.assertNotIn('select.required', history)
+        self.assertNotIn('localStorage.', history)
+        self.assertIn('device.requestHistory("list"', history)
+        self.assertIn('device.requestHistory("set_label"', history)
+        self.assertIn('history.notifyCompleted(this.deviceId, payload.measurement_id)', javascript)
+
     def test_vitals_keep_full_precision_and_reflow_without_clipping(self):
         css = (FRONTEND / "styles.css").read_text(encoding="utf-8")
         javascript = (FRONTEND / "app.js").read_text(encoding="utf-8")
@@ -74,7 +91,8 @@ class FrontendUiContractTest(unittest.TestCase):
         self.assertIn('Belum ada perangkat', html)
         self.assertIn('data-role="preview-toggle"', html)
         self.assertIn('function togglePreview()', javascript)
-        self.assertIn('page.previewButton.addEventListener("click", togglePreview);', javascript)
+        self.assertIn('page.previewButton.addEventListener("click", () => {', javascript)
+        self.assertIn('  togglePreview();', javascript)
         self.assertIn('if (preview) this.startPreview();', javascript)
         self.assertIn('else this.connect(password);', javascript)
         self.assertIn('clearInterval(previewTimer);', javascript)

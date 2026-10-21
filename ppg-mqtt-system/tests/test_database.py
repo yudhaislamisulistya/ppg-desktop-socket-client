@@ -5,17 +5,30 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
+import psycopg
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "storage"))
 
-from database import StorageDatabase  # noqa: E402
+from database import SCHEMA_STATEMENTS, StorageDatabase  # noqa: E402
 
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
 
 class StoragePolicyTest(unittest.TestCase):
+    def test_diabetes_label_rejects_values_other_than_boolean_or_null(self):
+        database = StorageDatabase.__new__(StorageDatabase)
+        for label in (0, 1, "true", "false", [], {}):
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, "true, false, atau null"):
+                database.update_diabetes_label(
+                    device_id="PPG-TEST0001", measurement_id="test", label=label,
+                    updated_at="2026-10-21T00:00:00Z",
+                )
+
     def test_non_300_second_measurement_is_rejected_before_database_write(self):
         database = StorageDatabase.__new__(StorageDatabase)
         with self.assertRaisesRegex(ValueError, "300 detik"):
@@ -166,6 +179,79 @@ class StorageDatabaseIntegrationTest(unittest.TestCase):
                 },
                 received_at=self.received_at,
             )
+
+    def completed_recording(self, device_id="PPG-HISTORY-TEST"):
+        measurement_id = self.new_measurement_id()
+        self.db.start_measurement(device_id=device_id, payload=self.start_payload(measurement_id), received_at=self.received_at)
+        result = {"measurement_id": measurement_id, "status": "completed",
+                  "finished_at": "2026-07-16T01:05:00Z", "si_mean": 6.2841}
+        self.db.finish_measurement(device_id=device_id, payload=result, received_at=result["finished_at"])
+        return measurement_id, result
+
+    def test_history_only_lists_completed_recordings_of_selected_device(self):
+        completed_id, _ = self.completed_recording()
+        other_id, _ = self.completed_recording("PPG-HISTORY-OTHER")
+        recording_id = self.new_measurement_id()
+        self.db.start_measurement(device_id="PPG-HISTORY-TEST", payload=self.start_payload(recording_id), received_at=self.received_at)
+        rows = self.db.list_history("PPG-HISTORY-TEST")
+        self.assertIn(completed_id, [row["id"] for row in rows])
+        self.assertNotIn(other_id, [row["id"] for row in rows])
+        self.assertNotIn(recording_id, [row["id"] for row in rows])
+        self.assertIsNone(next(row for row in rows if row["id"] == completed_id)["diabetes_label"])
+        self.assertIsNone(self.db.update_diabetes_label(
+            device_id="PPG-HISTORY-OTHER", measurement_id=completed_id, label=True, updated_at=self.received_at))
+        self.assertIsNone(self.db.update_diabetes_label(
+            device_id="PPG-HISTORY-TEST", measurement_id=recording_id, label=True, updated_at=self.received_at))
+
+    def test_optional_label_can_be_set_changed_cleared_and_survives_duplicate_result(self):
+        measurement_id, result = self.completed_recording()
+        for label in (True, False, None, True):
+            row = self.db.update_diabetes_label(
+                device_id="PPG-HISTORY-TEST", measurement_id=measurement_id,
+                label=label, updated_at=self.received_at,
+            )
+            self.assertIs(row["diabetes_label"], label)
+            self.db.finish_measurement(device_id="PPG-HISTORY-TEST", payload=result, received_at=result["finished_at"])
+            self.assertIs(self.db.get_measurement(measurement_id)["diabetes_label"], label)
+        reopened = StorageDatabase(TEST_DATABASE_URL)
+        try:
+            self.assertIs(reopened.get_measurement(measurement_id)["diabetes_label"], True)
+            self.assertEqual(reopened.get_measurement(measurement_id)["si_mean"], 6.2841)
+        finally:
+            reopened.close()
+
+    def test_history_pagination_is_stable(self):
+        for _ in range(3):
+            self.completed_recording("PPG-HISTORY-PAGES")
+        first = self.db.list_history("PPG-HISTORY-PAGES", limit=2)
+        second = self.db.list_history("PPG-HISTORY-PAGES", limit=2, offset=2)
+        self.assertEqual(len(first), 2)
+        self.assertEqual(len(second), 1)
+        self.assertTrue({row["id"] for row in first}.isdisjoint(row["id"] for row in second))
+
+    def test_history_migration_preserves_legacy_recordings(self):
+        schema = f"history_migration_{uuid4().hex}"
+        self.db.connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        url = make_conninfo(TEST_DATABASE_URL, options=f"-csearch_path={schema}")
+        legacy = psycopg.connect(url, autocommit=True)
+        migrated = None
+        try:
+            legacy.execute(SCHEMA_STATEMENTS[0])
+            legacy.execute(
+                "INSERT INTO measurements(id, device_id, patient_name, started_at, status, duration_seconds, created_at, updated_at) "
+                "VALUES ('legacy', 'PPG-LEGACY', 'Pasien Uji Lama', now(), 'completed', 300, now(), now())"
+            )
+            migrated = StorageDatabase(url)
+            row = migrated.get_measurement("legacy")
+            self.assertEqual(row["patient_name"], "Pasien Uji Lama")
+            self.assertIsNone(row["diabetes_label"])
+            self.assertIsNone(row["label_updated_at"])
+            self.assertEqual(migrated.list_history("PPG-LEGACY")[0]["id"], "legacy")
+        finally:
+            if migrated:
+                migrated.close()
+            legacy.close()
+            self.db.connection.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
 
 if __name__ == "__main__":

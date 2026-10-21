@@ -14,6 +14,7 @@ from typing import Any
 import paho.mqtt.client as mqtt
 
 from database import StorageDatabase
+from history import handle_history_request
 
 
 logging.basicConfig(
@@ -59,6 +60,7 @@ def on_connect(
             ("ppg/+/raw", 1),
             ("ppg/+/measurement/start", 1),
             ("ppg/+/measurement/result", 1),
+            ("ppg/+/history/request", 1),
         ]
     )
     LOGGER.info(
@@ -70,6 +72,16 @@ def on_message(client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage) ->
     received_at = utc_now()
     try:
         device_id, event = parse_topic(message.topic)
+        if event == "history/request":
+            if message.retain or len(message.payload) > 4096:
+                return
+            response = handle_history_request(
+                database, device_id, json.loads(message.payload.decode("utf-8")),
+            )
+            if response is not None:
+                topic, body = response
+                client.publish(topic, body, qos=1, retain=False)
+            return
         payload = json.loads(message.payload.decode("utf-8"))
         payload_device_id = payload.get("device_id")
         if payload_device_id and payload_device_id != device_id:

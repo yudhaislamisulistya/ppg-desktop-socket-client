@@ -39,6 +39,8 @@ class ProvisionerTest(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first.count("# BEGIN DEVICE PPG-002"), 1)
         self.assertIn("topic readwrite ppg/PPG-002/metrics", first)
+        self.assertIn("topic write ppg/PPG-002/history/request", first)
+        self.assertIn("topic read ppg/PPG-002/history/response/#", first)
 
         with self.assertRaisesRegex(ValueError, "harus sama"):
             PROVISIONER.validate_registration(

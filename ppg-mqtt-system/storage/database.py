@@ -45,6 +45,8 @@ SCHEMA_STATEMENTS = (
     CREATE INDEX IF NOT EXISTS idx_measurements_patient_started
     ON measurements(patient_name, started_at DESC)
     """,
+    "ALTER TABLE measurements ADD COLUMN IF NOT EXISTS diabetes_label BOOLEAN",
+    "ALTER TABLE measurements ADD COLUMN IF NOT EXISTS label_updated_at TIMESTAMPTZ",
     """
     CREATE TABLE IF NOT EXISTS measurement_raw_batches (
         measurement_id TEXT NOT NULL
@@ -270,6 +272,37 @@ class StorageDatabase:
         return self.connection.execute(
             "SELECT * FROM measurements WHERE id = %s",
             (measurement_id,),
+        ).fetchone()
+
+    def list_history(self, device_id: str, *, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
+        return self.connection.execute(
+            """
+            SELECT id, device_id, patient_name, started_at, finished_at, status,
+                   duration_seconds, age, height_cm, weight_kg, bmi,
+                   si_mean, hrv_mean, voltage_mean, adc_mean, mfcc,
+                   raw_sample_count, diabetes_label, label_updated_at
+            FROM measurements
+            WHERE device_id = %s AND status = 'completed' AND duration_seconds = 300
+            ORDER BY started_at DESC, id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (device_id, max(1, min(101, int(limit))), max(0, int(offset))),
+        ).fetchall()
+
+    def update_diabetes_label(
+        self, *, device_id: str, measurement_id: str, label: bool | None, updated_at: str,
+    ) -> dict[str, Any] | None:
+        if label is not None and type(label) is not bool:
+            raise ValueError("diabetes_label harus true, false, atau null")
+        return self.connection.execute(
+            """
+            UPDATE measurements
+            SET diabetes_label = %s, label_updated_at = %s
+            WHERE id = %s AND device_id = %s
+              AND status = 'completed' AND duration_seconds = 300
+            RETURNING id, diabetes_label, label_updated_at
+            """,
+            (label, updated_at, measurement_id, device_id),
         ).fetchone()
 
     def get_raw_batches(self, measurement_id: str) -> list[dict[str, Any]]:

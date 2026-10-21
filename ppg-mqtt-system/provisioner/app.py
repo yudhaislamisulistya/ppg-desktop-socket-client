@@ -90,6 +90,8 @@ def render_device_acl(content: str, device_id: str) -> str:
         f"topic readwrite ppg/{device_id}/measurement/result",
         f"topic readwrite ppg/{device_id}/status",
         f"topic read ppg/{device_id}/command",
+        f"topic write ppg/{device_id}/history/request",
+        f"topic read ppg/{device_id}/history/response/#",
         end,
     ]
     return "\n".join(output).rstrip() + "\n\n" + "\n".join(block) + "\n"

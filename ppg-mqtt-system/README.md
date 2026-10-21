@@ -305,6 +305,54 @@ tiga kolom pada layar hingga 1050 piksel, dan dua kolom pada layar hingga
 baris berikutnya tanpa dipotong atau mengurangi presisi, pada preview maupun
 panel data MQTT.
 
+### History perekaman dan label diabetes
+
+1. Hubungkan akun alat melalui Device ID, Username, dan Password MQTT yang sama.
+2. Setelah Submit pada desktop dan perekaman 300 detik selesai, notifikasi
+   **Perekaman selesai** menyediakan tombol **Lihat di History**. Menu **History**
+   juga dapat dibuka langsung untuk membaca rekaman sebelumnya.
+3. Pilih perangkat pada History. Rekaman dibaca dari PostgreSQL melalui service
+   `storage`, diurutkan dari yang terbaru, 20 rekaman per halaman. Gunakan
+   **Muat lebih banyak** untuk rekaman yang lebih lama.
+4. Setiap rekaman menampilkan nama pasien, waktu mulai, durasi, nilai rata-rata,
+   parameter pasien, dan detail koefisien MFCC yang tersedia.
+5. Dropdown **Label diabetes (opsional)** memiliki pilihan **Belum diisi**,
+   **Diabetes**, dan **Tidak diabetes**. Pilih nilai lalu tekan **Simpan label**.
+   Label boleh ditunda, diubah, atau dikosongkan kembali kapan saja.
+
+Label merupakan anotasi manual, bukan prediksi model atau diagnosis otomatis.
+Rekaman tidak memerlukan label untuk masuk History. Rekaman lama tetap tersedia
+dengan label **Belum diisi**. Label tersimpan di PostgreSQL, sehingga tetap ada
+setelah browser ditutup; hubungkan kembali akun alat untuk membacanya. Alat fisik
+tidak harus sedang mengirim sampel, tetapi koneksi broker harus aktif.
+
+History hanya menampilkan sesi `completed` berdurasi 300 detik. Data live dan
+preview tidak masuk History; sesi yang dibatalkan tidak dianggap rekaman selesai.
+Frontend menunggu dan mencoba ulang jika notifikasi selesai diterima sebelum
+transaksi hasil tersimpan. Jika storage tidak merespons, frontend menampilkan
+kesalahan dan tidak mengklaim label sudah tersimpan.
+
+Jalur komunikasi tetap frontend → MQTT WSS → `storage` → PostgreSQL, tanpa
+API publik atau koneksi PostgreSQL langsung dari browser. Akun alat hanya boleh
+menulis permintaan pada `ppg/<DEVICE_ID>/history/request` dan membaca balasan
+`ppg/<DEVICE_ID>/history/response/<CLIENT_ID>`. `storage` membaca permintaan dan
+menulis balasan. Respons menggunakan `request_id`, QoS 1, dan tidak di-retain.
+Izin alat tidak mencakup perangkat lain atau publikasi balasan History.
+
+Pada broker yang sudah berjalan, terapkan pembaruan ACL sebelum menjalankan
+versi storage dan frontend yang baru:
+
+```bash
+python3 scripts/upgrade-history-acl.py
+docker compose kill -s HUP mosquitto
+docker compose up -d --no-deps --build storage provisioner
+```
+
+Script menjaga password dan aturan lama, membuat cadangan `acl.history.bak`,
+serta aman dijalankan kembali. Provisioning alat baru otomatis memberikan izin
+History yang sama. Tidak diperlukan port layanan atau kredensial database baru
+pada deployment frontend terpisah.
+
 Preview visual tersedia untuk [desktop tema terang](../docs/previews/frontend-desktop-light.png),
 [desktop tema gelap](../docs/previews/frontend-desktop-dark.png), dan
 [ponsel](../docs/previews/frontend-mobile-light.png). Untuk menjalankan preview
@@ -664,6 +712,14 @@ Tabel:
 
 - `measurements`: satu baris untuk satu kali Submit berdurasi 300 detik.
 - `measurement_raw_batches`: batch ADC milik measurement tersebut.
+
+Tabel `measurements` juga memiliki kolom `diabetes_label BOOLEAN NULL` dan
+`label_updated_at TIMESTAMPTZ`. Pemetaan `diabetes_label`: `NULL` berarti belum
+diisi, `TRUE` berarti Diabetes, dan `FALSE` berarti Tidak diabetes. Service
+storage menambahkan kolom ini secara idempoten saat startup tanpa menghapus
+rekaman lama. Pembaruan label hanya boleh menyasar rekaman selesai milik Device
+ID pada topic permintaan. Pesan hasil rekaman yang terkirim ulang tidak menimpa
+label yang sudah diisi.
 
 Kunci utama `measurement_raw_batches` adalah `(measurement_id, sequence)`.
 Jika pesan QoS 1 diterima dua kali, duplikat tidak disimpan. Service storage

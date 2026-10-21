@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
-    <link rel="stylesheet" href="styles.css?v=20261021-vitals-layout">
+    <link rel="stylesheet" href="styles.css?v=20261021-history">
   </head>
   <body>
     <header class="topbar">
@@ -46,6 +46,11 @@
         </div>
       </div>
     </section>
+
+    <nav class="view-nav" aria-label="Menu utama">
+      <button type="button" id="dashboard-button" aria-pressed="true" aria-controls="dashboard-grid">Dashboard</button>
+      <button type="button" id="history-button" aria-pressed="false" aria-controls="history-panel">History <span id="history-badge" class="preview-badge" hidden>Baru</span></button>
+    </nav>
 
     <details class="connection" id="connection">
       <summary class="connection-head">
@@ -100,6 +105,26 @@
         <p>Hubungkan alat untuk melihat data realtime, atau tekan tombol Preview untuk melihat tampilan simulasi.</p>
       </section>
     </main>
+
+    <section class="recording-complete" id="recording-complete" hidden>
+      <p id="recording-complete-message" role="status"></p>
+      <button type="button" class="text-btn" id="recording-complete-open">Lihat di History &rarr;</button>
+    </section>
+
+    <section class="history-panel" id="history-panel" aria-labelledby="history-title" hidden>
+      <header class="history-head">
+        <div><p class="eyebrow">Rekaman tersimpan</p><h2 id="history-title">History perekaman</h2>
+          <p>Rekaman 300 detik yang selesai. Label diabetes diisi manual, opsional, dan dapat diubah nanti.</p>
+        </div>
+        <div class="history-controls">
+          <label class="field" for="history-device">Perangkat<select id="history-device"></select></label>
+          <button type="button" class="ghost-btn" id="history-refresh">Muat ulang</button>
+        </div>
+      </header>
+      <p class="history-status" id="history-status" role="status" aria-live="polite">Hubungkan perangkat untuk membuka History.</p>
+      <div class="history-list" id="history-list"></div>
+      <button type="button" class="ghost-btn" id="history-more" hidden>Muat lebih banyak</button>
+    </section>
 
     <footer class="page-footer"><span>Glucometer PPG Merah Putih</span><span>Monitoring melalui MQTT over WebSocket</span></footer>
 
@@ -196,6 +221,7 @@
               <dl class="result-empty" data-role="result-grid">
                 Belum ada sesi yang selesai.
               </dl>
+              <button type="button" class="text-btn result-history" data-role="result-history" hidden>Lihat hasil dan label di History &rarr;</button>
             </section>
 
             <section class="panel diagnostic-panel">
@@ -227,6 +253,7 @@
       crossorigin="anonymous"></script>
     <script src="waveform.js"></script>
     <script src="preview.js"></script>
-    <script src="app.js?v=20261021-manual-preview"></script>
+    <script src="history.js?v=20261021-history"></script>
+    <script src="app.js?v=20261021-history"></script>
   </body>
 </html>

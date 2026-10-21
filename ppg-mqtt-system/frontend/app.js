@@ -13,6 +13,7 @@ const TOPIC_SUFFIXES = [
   "metrics",
   "measurement/start",
   "measurement/result",
+  "history/response",
 ];
 
 const TRACE_CAPACITY = 1000;
@@ -67,7 +68,14 @@ const page = {
   grid: el("dashboard-grid"),
   empty: el("dashboard-empty"),
   template: el("device-dashboard-template"),
+  historyPanel: el("history-panel"),
+  historyButton: el("history-button"),
+  dashboardButton: el("dashboard-button"),
+  completion: el("recording-complete"),
+  completionMessage: el("recording-complete-message"),
+  completionOpen: el("recording-complete-open"),
 };
+let lastCompletedDevice = null;
 
 function formatNumber(value, digits, suffix = "") {
   if (value === null || value === undefined || value === "") return "—";
@@ -138,6 +146,21 @@ function showPageAlert(level, title, body) {
 
 function hidePageAlert() {
   page.alert.hidden = true;
+}
+
+function showView(view) {
+  const isHistory = view === "history";
+  page.grid.hidden = isHistory;
+  page.historyPanel.hidden = !isHistory;
+  page.previewButton.hidden = isHistory;
+  page.dashboardButton.setAttribute("aria-pressed", String(!isHistory));
+  page.historyButton.setAttribute("aria-pressed", String(isHistory));
+  if (isHistory) {
+    stopPreview();
+    updateSummary();
+  } else {
+    dashboards.forEach((dashboard) => dashboard.drawChart());
+  }
 }
 
 function stopPreview() {
@@ -296,6 +319,8 @@ class DeviceDashboard {
   constructor({ deviceId, username, password, preview = false }) {
     this.deviceId = deviceId;
     this.username = username;
+    this.preview = preview;
+    this.historyRequests = new Map();
     this.client = null;
     this.closed = false;
     this.trace = [];
@@ -316,6 +341,7 @@ class DeviceDashboard {
     });
     this.ui["device-name"].textContent = deviceId;
     this.ui.remove.addEventListener("click", () => removeDashboard(deviceId));
+    this.ui["result-history"].addEventListener("click", () => history.open(deviceId));
 
     page.grid.append(this.node);
     this.buildVitals();
@@ -523,7 +549,8 @@ class DeviceDashboard {
     this.links.clear();
     TOPIC_SUFFIXES.forEach((suffix) => {
       this.links.set(suffix, {
-        topic: `ppg/${this.deviceId}/${suffix}`,
+        topic: suffix === "history/response" ? this.historyResponseTopic || `ppg/${this.deviceId}/history/response/#`
+          : `ppg/${this.deviceId}/${suffix}`,
         grant: "menunggu",
         granted: null,
         count: 0,
@@ -574,6 +601,8 @@ class DeviceDashboard {
   }
 
   renderResult(payload) {
+    this.ui["result-history"].hidden = this.preview || !payload?.measurement_id
+      || (payload.status || "completed") !== "completed";
     if (!payload) {
       this.ui["result-status"].textContent = "belum ada";
       this.ui["result-grid"].className = "result-empty";
@@ -621,11 +650,23 @@ class DeviceDashboard {
       console.error("Payload bukan JSON", topic, error);
       return;
     }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return;
 
     const parts = topic.split("/");
     const deviceId = parts[1];
     const suffix = parts.slice(2).join("/");
     if (deviceId !== this.deviceId) return;
+
+    if (topic === this.historyResponseTopic) {
+      this.noteMessage("history/response");
+      const pending = this.historyRequests.get(payload.request_id);
+      if (!pending) return;
+      this.historyRequests.delete(payload.request_id);
+      clearTimeout(pending.timer);
+      if (payload.ok === true) pending.resolve(payload.data);
+      else pending.reject(new Error(String(payload.error || "Permintaan History gagal.")));
+      return;
+    }
 
     this.noteMessage(suffix);
     this.hideAlert();
@@ -678,13 +719,58 @@ class DeviceDashboard {
       this.startedAt = null;
       this.durationSeconds = null;
       this.renderResult(payload);
+      if ((payload.status || "completed") === "completed" && payload.measurement_id && !this.preview) {
+        lastCompletedDevice = this.deviceId;
+        history.notifyCompleted(this.deviceId, payload.measurement_id);
+        page.completion.hidden = false;
+        page.completionMessage.textContent = `${this.deviceId}: perekaman selesai. Buka History untuk melihat hasil dan mengisi label opsional.`;
+      }
     }
+  }
+
+  requestHistory(action, parameters = {}) {
+    if (this.preview || !this.client?.connected || !this.historyClientId) {
+      return Promise.reject(new Error("Koneksi broker belum aktif. Hubungkan perangkat atau tunggu koneksi pulih."));
+    }
+    if (this.links.get("history/response")?.granted === false) {
+      return Promise.reject(new Error("Izin History ditolak. ACL broker perlu diperbarui."));
+    }
+    if (this.historyRequests.size >= 20) return Promise.reject(new Error("Tunggu permintaan History sebelumnya selesai."));
+    const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return new Promise((resolve, reject) => {
+      const fail = (error) => {
+        const pending = this.historyRequests.get(requestId);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.historyRequests.delete(requestId);
+        reject(error);
+      };
+      const timer = setTimeout(() => fail(new Error("History belum merespons. Periksa service storage dan izin History broker, lalu coba lagi.")), 10000);
+      this.historyRequests.set(requestId, { resolve, reject, timer });
+      try {
+        this.client.publish(`ppg/${this.deviceId}/history/request`, JSON.stringify({
+          ...parameters, action, device_id: this.deviceId, client_id: this.historyClientId, request_id: requestId,
+        }), { qos: 1, retain: false }, (error) => { if (error) fail(error); });
+      } catch (error) {
+        fail(error);
+      }
+    });
+  }
+
+  rejectHistoryRequests() {
+    this.historyRequests.forEach((pending) => {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("Koneksi perangkat terputus. Hubungkan kembali untuk membuka History."));
+    });
+    this.historyRequests.clear();
   }
 
   connect(password) {
     const url = `${resolveWsProtocol(BROKER.port)}://${BROKER.host}:${BROKER.port}`;
     const fallbackId = Math.random().toString(16).slice(2);
     const randomId = globalThis.crypto?.randomUUID?.() ?? fallbackId;
+    this.historyClientId = `dashboard-${randomId}`;
+    this.historyResponseTopic = `ppg/${this.deviceId}/history/response/${this.historyClientId}`;
     this.resetLinks();
     this.setDeviceLamp("waiting");
     this.setBroker("menghubungkan…", "wait");
@@ -692,7 +778,7 @@ class DeviceDashboard {
     const client = mqtt.connect(url, {
       username: this.username,
       password,
-      clientId: `dashboard-${randomId}`,
+      clientId: this.historyClientId,
       protocolVersion: 4,
       clean: true,
       keepalive: 30,
@@ -707,9 +793,7 @@ class DeviceDashboard {
       this.setBroker("terhubung", "on");
       this.setDeviceLamp("waiting");
       this.connectedAt = Date.now();
-      const topics = TOPIC_SUFFIXES.map(
-        (suffix) => `ppg/${this.deviceId}/${suffix}`,
-      );
+      const topics = [...this.links.values()].map((link) => link.topic);
       client.subscribe(topics, { qos: 1 }, (error, granted) => {
         if (error) {
           this.ui["link-meta"].textContent = "subscribe gagal";
@@ -719,7 +803,8 @@ class DeviceDashboard {
 
         let denied = 0;
         (granted || []).forEach((entry) => {
-          const suffix = entry.topic.split("/").slice(2).join("/");
+          const suffix = entry.topic === this.historyResponseTopic ? "history/response"
+            : entry.topic.split("/").slice(2).join("/");
           const link = this.links.get(suffix);
           if (!link) return;
           const ok = entry.qos !== 128;
@@ -739,6 +824,7 @@ class DeviceDashboard {
             `Username ${this.username} tidak memiliki hak baca untuk ${this.deviceId}.`,
           );
         }
+        if (!page.historyPanel.hidden && el("history-device").value === this.deviceId) history.load();
       });
     });
 
@@ -749,6 +835,7 @@ class DeviceDashboard {
       if (!this.closed) this.setBroker("luring", "bad");
     });
     client.on("close", () => {
+      this.rejectHistoryRequests();
       if (!this.closed && this.client === client) this.setBroker("terputus", "bad");
     });
     client.on("error", (error) => {
@@ -801,6 +888,7 @@ class DeviceDashboard {
 
   destroy() {
     this.closed = true;
+    this.rejectHistoryRequests();
     const client = this.client;
     this.client = null;
     if (client) client.end(true);
@@ -813,6 +901,8 @@ function removeDashboard(deviceId) {
   if (!dashboard) return;
   dashboards.delete(deviceId);
   dashboard.destroy();
+  history.syncDevices();
+  if (lastCompletedDevice === deviceId) page.completion.hidden = true;
   updateSummary();
   hidePageAlert();
 }
@@ -867,12 +957,16 @@ function addDashboard() {
   hidePageAlert();
   const dashboard = new DeviceDashboard({ deviceId, username, password });
   dashboards.set(deviceId, dashboard);
+  history.syncDevices();
+  showView("dashboard");
   page.password.value = "";
   page.deviceId.value = "";
   page.username.value = "";
   page.deviceId.focus();
   updateSummary();
 }
+
+const history = new MeasurementHistory({ getDevices: () => dashboards, onOpen: () => showView("history"), formatNumber });
 
 page.form.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -891,7 +985,13 @@ page.username.addEventListener("input", () => {
 page.themeToggle.addEventListener("click", () => {
   applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
 });
-page.previewButton.addEventListener("click", togglePreview);
+page.previewButton.addEventListener("click", () => {
+  showView("dashboard");
+  togglePreview();
+});
+page.historyButton.addEventListener("click", () => history.open());
+page.dashboardButton.addEventListener("click", () => showView("dashboard"));
+page.completionOpen.addEventListener("click", () => history.open(lastCompletedDevice));
 page.previewConnect.addEventListener("click", () => {
   page.connection.open = true;
   page.deviceId.focus();

@@ -78,6 +78,8 @@ if [ -n "$TARGET" ] && ! grep -Fqx "# BEGIN DEVICE $TARGET" "$ACL_FILE"; then
     printf "topic readwrite ppg/%s/measurement/result\n" "$TARGET"
     printf "topic readwrite ppg/%s/status\n" "$TARGET"
     printf "topic read ppg/%s/command\n" "$TARGET"
+    printf "topic write ppg/%s/history/request\n" "$TARGET"
+    printf "topic read ppg/%s/history/response/#\n" "$TARGET"
     printf "# END DEVICE %s\n" "$TARGET"
   } >> "$TEMP_ACL"
 fi
