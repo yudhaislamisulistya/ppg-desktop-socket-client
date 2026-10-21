@@ -305,6 +305,16 @@ class StorageDatabase:
             (label, updated_at, measurement_id, device_id),
         ).fetchone()
 
+    def count_history(self, device_id: str) -> int:
+        row = self.connection.execute(
+            """
+            SELECT count(*) AS total FROM measurements
+            WHERE device_id = %s AND status = 'completed' AND duration_seconds = 300
+            """,
+            (device_id,),
+        ).fetchone()
+        return row["total"]
+
     def get_raw_batches(self, measurement_id: str) -> list[dict[str, Any]]:
         return self.connection.execute(
             """

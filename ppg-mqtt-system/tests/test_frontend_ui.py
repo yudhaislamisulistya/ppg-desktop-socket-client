@@ -11,6 +11,67 @@ FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 
 
 class FrontendUiContractTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js diperlukan untuk uji perangkat bawaan")
+    def test_preset_devices_require_login_before_reusing_session_credentials(self):
+        html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+        self.assertIn('data-preset="PPG-001"', html)
+        self.assertIn('data-preset="PPG-002"', html)
+        script = r"""
+            const assert = require('node:assert/strict');
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const source = fs.readFileSync(process.argv[1], 'utf8');
+            const controller = source.slice(source.indexOf('function connectPreset('), source.indexOf('function addDashboard('));
+            const calls = [];
+            const devices = new Map();
+            const page = {deviceId: {}, username: {dataset: {}}, password: {value: '', focus() {this.focused = true;}},
+                connection: {scrollIntoView() {}}, historyPanel: {hidden: true}};
+            const context = vm.createContext({page, dashboards: devices, PRESET_DEVICE_IDS: ['PPG-001', 'PPG-002'],
+                addDashboard(options) {calls.push(options);}, showView() {}, history: {open(id) {calls.push(id);}}});
+            const run = code => vm.runInContext(code, context);
+            run(controller + '; connectPreset("PPG-001");');
+            assert.equal(calls.length, 0);
+            assert.equal(page.deviceId.value, 'PPG-001');
+            assert.equal(page.username.value, 'PPG-001');
+            assert.equal(page.password.value, '');
+            assert.equal(page.password.focused, true);
+            const first = {deviceId: 'PPG-001', username: 'PPG-001', node: {scrollIntoView() {}},
+                client: {connected: true, options: {password: 'private-test-session'}}};
+            devices.set('PPG-001', first);
+            run('connectPreset("PPG-002");');
+            assert.equal(calls.length, 1);
+            assert.equal(calls[0].deviceId, 'PPG-002');
+            assert.equal(calls[0].username, 'PPG-002');
+            assert.equal(calls[0].password, 'private-test-session');
+            first.client.connected = false;
+            run('connectPreset("PPG-002"); connectPreset("PPG-OTHER");');
+            assert.equal(calls.length, 1);
+            first.client.connected = true;
+            first.username = 'other-account';
+            run('connectPreset("PPG-002");');
+            assert.equal(calls.length, 1);
+            page.historyPanel.hidden = false;
+            run('connectPreset("PPG-001");');
+            assert.equal(calls[1], 'PPG-001');
+        """
+        subprocess.run(["node", "-e", script, str(FRONTEND / "app.js")], check=True, capture_output=True, text=True)
+
+    def test_history_uses_an_accessible_table_and_numbered_pagination(self):
+        html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+        history = (FRONTEND / "history.js").read_text(encoding="utf-8")
+        css = (FRONTEND / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('<table class="history-table">', html)
+        self.assertIn('<tbody id="history-list">', html)
+        self.assertIn('scope="col"', html)
+        self.assertIn('id="history-page-size"', html)
+        self.assertIn('id="history-previous"', html)
+        self.assertIn('id="history-next"', html)
+        self.assertIn('id="history-pages"', html)
+        self.assertNotIn('id="history-more"', html)
+        self.assertIn('setAttribute("aria-current", "page")', history)
+        self.assertIn('patient.scope = "row"', history)
+        self.assertIn('.history-table-wrap { position: relative; overflow-x: auto;', css)
+
     def test_history_is_persistent_and_label_is_optional_and_manual(self):
         html = (FRONTEND / "index.html").read_text(encoding="utf-8")
         history = (FRONTEND / "history.js").read_text(encoding="utf-8")

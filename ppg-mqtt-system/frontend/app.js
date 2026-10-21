@@ -6,6 +6,7 @@ const BROKER = {
 };
 
 const MAX_DASHBOARDS = 6;
+const PRESET_DEVICE_IDS = ["PPG-001", "PPG-002"];
 const DEVICE_ID_PATTERN = /^PPG-[A-Za-z0-9_-]+$/;
 const TOPIC_SUFFIXES = [
   "status",
@@ -74,6 +75,7 @@ const page = {
   completion: el("recording-complete"),
   completionMessage: el("recording-complete-message"),
   completionOpen: el("recording-complete-open"),
+  presets: el("device-presets"),
 };
 let lastCompletedDevice = null;
 
@@ -213,6 +215,14 @@ function updateSummary() {
     ? "Putuskan seluruh panel perangkat untuk membuka preview."
     : "Tampilkan atau tutup dashboard dengan data simulasi.";
   page.connectButton.disabled = dashboards.size >= MAX_DASHBOARDS;
+  page.presets?.querySelectorAll("[data-preset]").forEach((button) => {
+    const dashboard = dashboards.get(button.dataset.preset);
+    const connected = Boolean(dashboard?.client?.connected);
+    const connecting = dashboard?.node.dataset.state === "wait";
+    button.dataset.state = connected ? "connected" : connecting ? "connecting" : "idle";
+    button.querySelector("span").textContent = connected ? "Broker terhubung" : connecting ? "Menghubungkan…" : "Belum terhubung";
+    button.setAttribute("aria-label", `${dashboard ? "Buka" : "Hubungkan"} ${button.dataset.preset}`);
+  });
 }
 
 function drawWaveform(canvas, trace) {
@@ -907,10 +917,36 @@ function removeDashboard(deviceId) {
   hidePageAlert();
 }
 
-function addDashboard() {
-  const deviceId = page.deviceId.value.trim();
-  const username = page.username.value.trim();
-  const password = page.password.value;
+function connectPreset(deviceId) {
+  if (!PRESET_DEVICE_IDS.includes(deviceId)) return;
+  if (dashboards.has(deviceId)) {
+    if (!page.historyPanel.hidden) history.open(deviceId);
+    else {
+      showView("dashboard");
+      dashboards.get(deviceId).node.scrollIntoView({ block: "start" });
+    }
+    return;
+  }
+  const authenticated = [...dashboards.values()].find((dashboard) =>
+    PRESET_DEVICE_IDS.includes(dashboard.deviceId) && dashboard.username === dashboard.deviceId
+      && dashboard.client?.connected && typeof dashboard.client.options?.password === "string");
+  if (authenticated) {
+    addDashboard({ deviceId, username: deviceId, password: authenticated.client.options.password });
+    return;
+  }
+  page.deviceId.value = deviceId;
+  page.username.value = deviceId;
+  page.username.dataset.auto = "true";
+  page.password.value = "";
+  page.connection.open = true;
+  page.password.focus();
+  page.connection.scrollIntoView({ block: "center" });
+}
+
+function addDashboard(credentials) {
+  const deviceId = (credentials?.deviceId ?? page.deviceId.value).trim();
+  const username = (credentials?.username ?? page.username.value).trim();
+  const password = credentials?.password ?? page.password.value;
 
   if (!DEVICE_ID_PATTERN.test(deviceId)) {
     showPageAlert(
@@ -990,6 +1026,9 @@ page.previewButton.addEventListener("click", () => {
   togglePreview();
 });
 page.historyButton.addEventListener("click", () => history.open());
+page.presets.querySelectorAll("[data-preset]").forEach((button) => {
+  button.addEventListener("click", () => connectPreset(button.dataset.preset));
+});
 page.dashboardButton.addEventListener("click", () => showView("dashboard"));
 page.completionOpen.addEventListener("click", () => history.open(lastCompletedDevice));
 page.previewConnect.addEventListener("click", () => {

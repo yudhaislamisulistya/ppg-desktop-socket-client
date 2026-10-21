@@ -47,7 +47,8 @@ def handle_history_request(database, device_id, payload):
             if type(offset) is not int or not 0 <= offset <= 1000000:
                 raise ValueError("Offset History tidak valid.")
             rows = database.list_history(device_id, limit=limit + 1, offset=offset)
-            response["data"] = {"measurements": rows[:limit], "has_more": len(rows) > limit}
+            response["data"] = {"measurements": rows[:limit], "has_more": len(rows) > limit,
+                                "total": database.count_history(device_id)}
         elif action == "set_label":
             measurement_id = payload.get("measurement_id")
             if not isinstance(measurement_id, str) or not 1 <= len(measurement_id) <= 200:

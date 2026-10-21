@@ -22,8 +22,73 @@ SPEC.loader.exec_module(ACL)
 
 
 class HistoryProtocolTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js diperlukan untuk uji pagination")
+    def test_numbered_pagination_and_server_side_page_navigation(self):
+        script = r"""
+            const assert = require('node:assert/strict');
+            const fs = require('node:fs');
+            const vm = require('node:vm');
+            const source = fs.readFileSync(process.argv[1], 'utf8');
+            const {pages, Controller} = vm.runInNewContext(source + '; ({pages: historyPageNumbers, Controller: MeasurementHistory})');
+            assert.deepEqual([...pages(1, 0)], []);
+            assert.deepEqual([...pages(1, 1)], [1]);
+            assert.deepEqual([...pages(2, 3)], [1, 2, 3]);
+            assert.deepEqual([...pages(50, 100)], [1, null, 48, 49, 50, 51, 52, null, 100]);
+            for (let total = 1; total <= 100; total++) {
+                for (let current = 1; current <= total; current++) {
+                    const buttons = [...pages(current, total)].filter(value => value !== null);
+                    assert.ok(buttons.includes(current));
+                    assert.equal(buttons[0], 1);
+                    assert.equal(buttons[buttons.length - 1], total);
+                    assert.ok(buttons.length <= 9);
+                    assert.equal(new Set(buttons).size, buttons.length);
+                    assert.ok(buttons.every(value => value >= 1 && value <= total));
+                }
+            }
+            (async () => {
+                const calls = [];
+                const records = Array.from({length: 25}, (_, index) => ({id: `row-${index}`}));
+                const device = {requestHistory: async (action, {limit, offset}) => {
+                    calls.push({limit, offset});
+                    return {measurements: records.slice(offset, offset + limit), total: records.length};
+                }};
+                const history = Object.create(Controller.prototype);
+                Object.assign(history, {rows: [], currentPage: 1, total: 0, generation: 0,
+                    expected: new Map(), getDevices: () => new Map([['PPG-001', device]]),
+                    ui: {device: {value: 'PPG-001'}, 'page-size': {value: '10'},
+                         list: {replaceChildren() {}}, 'table-wrap': {}, 'scroll-hint': {}, status: {}, badge: {}, panel: {}, pagination: {}},
+                    setBusy(value) {this.busy = value;}, render() {}, renderPagination() {},
+                });
+                await history.load();
+                assert.equal(history.rows.length, 10);
+                assert.equal(history.total, 25);
+                await history.load({page: 2});
+                assert.equal(history.rows[0].id, 'row-10');
+                assert.equal(history.currentPage, 2);
+                assert.equal(history.rows.length, 10);
+                await history.load({page: 99});
+                assert.equal(history.currentPage, 3);
+                assert.equal(history.rows.length, 5);
+                assert.equal(calls[calls.length - 1].offset, 20);
+                history.ui['page-size'].value = '20';
+                await history.load({page: 1});
+                assert.equal(history.rows.length, 20);
+                device.requestHistory = async () => {throw new Error('test offline');};
+                await history.load();
+                assert.match(history.ui.status.textContent, /test offline/);
+                assert.equal(history.busy, false);
+                assert.equal(history.ui.pagination.hidden, true);
+                device.requestHistory = async () => ({measurements: [], total: 0});
+                await history.load({page: 3});
+                assert.equal(history.currentPage, 1);
+                assert.equal(history.rows.length, 0);
+            })().catch(error => {console.error(error);process.exitCode = 1;});
+        """
+        subprocess.run(["node", "-e", script, str(ROOT / "frontend/history.js")], check=True, capture_output=True, text=True)
+
     def setUp(self):
         self.database = Mock()
+        self.database.count_history.return_value = 0
         self.base = {"client_id": "dashboard-test", "request_id": "request-1", "action": "list"}
 
     def response(self, **fields):
@@ -33,12 +98,15 @@ class HistoryProtocolTest(unittest.TestCase):
 
     def test_history_is_scoped_to_topic_and_paginates_without_raw_samples(self):
         self.database.list_history.return_value = [{"id": "first", "started_at": datetime(2026, 10, 21, tzinfo=timezone.utc)}, {"id": "second"}]
+        self.database.count_history.return_value = 12
         response = self.response(limit=1, offset=2)
         self.database.list_history.assert_called_once_with("PPG-001", limit=2, offset=2)
         self.assertTrue(response["ok"])
         self.assertTrue(response["data"]["has_more"])
         self.assertEqual(len(response["data"]["measurements"]), 1)
         self.assertEqual(response["request_id"], "request-1")
+        self.database.count_history.assert_called_once_with("PPG-001")
+        self.assertEqual(response["data"]["total"], 12)
 
     def test_invalid_routing_tokens_do_not_publish_responses(self):
         for field in ("client_id", "request_id"):

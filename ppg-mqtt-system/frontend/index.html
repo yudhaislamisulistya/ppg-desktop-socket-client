@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
-    <link rel="stylesheet" href="styles.css?v=20261021-history">
+    <link rel="stylesheet" href="styles.css?v=20261021-history-table">
   </head>
   <body>
     <header class="topbar">
@@ -51,6 +51,16 @@
       <button type="button" id="dashboard-button" aria-pressed="true" aria-controls="dashboard-grid">Dashboard</button>
       <button type="button" id="history-button" aria-pressed="false" aria-controls="history-panel">History <span id="history-badge" class="preview-badge" hidden>Baru</span></button>
     </nav>
+
+    <section class="device-presets" id="device-presets" aria-labelledby="presets-title">
+      <div><h2 id="presets-title">Perangkat tersedia</h2>
+        <p>Pilih perangkat untuk membuka koneksi. Setelah satu akun berhasil login, akun bawaan lainnya dapat memakai password sesi yang sama.</p>
+      </div>
+      <div class="preset-list">
+        <button type="button" class="preset-btn" data-preset="PPG-001" aria-label="Hubungkan PPG-001"><strong>PPG-001</strong><span>Belum terhubung</span></button>
+        <button type="button" class="preset-btn" data-preset="PPG-002" aria-label="Hubungkan PPG-002"><strong>PPG-002</strong><span>Belum terhubung</span></button>
+      </div>
+    </section>
 
     <details class="connection" id="connection">
       <summary class="connection-head">
@@ -118,12 +128,33 @@
         </div>
         <div class="history-controls">
           <label class="field" for="history-device">Perangkat<select id="history-device"></select></label>
+          <label class="field" for="history-page-size">Baris per halaman<select id="history-page-size"><option value="10">10</option><option value="20">20</option><option value="50">50</option></select></label>
           <button type="button" class="ghost-btn" id="history-refresh">Muat ulang</button>
         </div>
       </header>
       <p class="history-status" id="history-status" role="status" aria-live="polite">Hubungkan perangkat untuk membuka History.</p>
-      <div class="history-list" id="history-list"></div>
-      <button type="button" class="ghost-btn" id="history-more" hidden>Muat lebih banyak</button>
+      <p class="history-scroll-hint" id="history-scroll-hint" hidden>Geser tabel ke samping untuk melihat semua kolom.</p>
+      <div class="history-table-wrap" id="history-table-wrap" role="region" aria-label="Tabel History, dapat digeser secara horizontal" tabindex="0" hidden>
+        <table class="history-table">
+          <caption class="sr-only">Rekaman selesai 300 detik dan label diabetes manual</caption>
+          <thead><tr>
+            <th scope="col">No.</th><th scope="col">Nama pasien</th><th scope="col">Waktu mulai</th>
+            <th scope="col">SI <span>(m/s)</span></th><th scope="col">HRV <span>(ms)</span></th>
+            <th scope="col">BMI <span>(kg/m²)</span></th><th scope="col">Umur <span>(th)</span></th>
+            <th scope="col">Voltase <span>(V)</span></th><th scope="col">ADC</th>
+            <th scope="col">Label diabetes <span>(opsional)</span></th><th scope="col">Detail</th>
+          </tr></thead>
+          <tbody id="history-list"></tbody>
+        </table>
+      </div>
+      <nav class="history-pagination" id="history-pagination" aria-label="Halaman History" hidden>
+        <p id="history-page-info"></p>
+        <div class="pagination-controls">
+          <button type="button" class="ghost-btn" id="history-previous">Sebelumnya</button>
+          <div class="pagination-pages" id="history-pages"></div>
+          <button type="button" class="ghost-btn" id="history-next">Berikutnya</button>
+        </div>
+      </nav>
     </section>
 
     <footer class="page-footer"><span>Glucometer PPG Merah Putih</span><span>Monitoring melalui MQTT over WebSocket</span></footer>
@@ -253,7 +284,7 @@
       crossorigin="anonymous"></script>
     <script src="waveform.js"></script>
     <script src="preview.js"></script>
-    <script src="history.js?v=20261021-history"></script>
-    <script src="app.js?v=20261021-history"></script>
+    <script src="history.js?v=20261021-history-table"></script>
+    <script src="app.js?v=20261021-history-table"></script>
   </body>
 </html>

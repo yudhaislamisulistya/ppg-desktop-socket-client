@@ -1,19 +1,39 @@
 /* Data History dan label tetap di PostgreSQL, bukan penyimpanan browser. */
+function historyPageNumbers(current, total) {
+  if (total < 1) return [];
+  const start = Math.max(1, Math.min(current - 2, total - 4));
+  const pages = [...new Set([1, total, ...Array.from({ length: 5 }, (_, index) => start + index)])]
+    .filter((page) => page <= total).sort((left, right) => left - right);
+  const result = [];
+  pages.forEach((page, index) => {
+    const gap = page - pages[index - 1];
+    if (gap === 2) result.push(page - 1);
+    else if (gap > 2) result.push(null);
+    result.push(page);
+  });
+  return result;
+}
+
 class MeasurementHistory {
   constructor({ getDevices, onOpen, formatNumber }) {
     this.getDevices = getDevices;
     this.onOpen = onOpen;
     this.formatNumber = formatNumber;
-    this.ui = Object.fromEntries(["panel", "device", "refresh", "status", "list", "more", "badge"]
+    this.ui = Object.fromEntries(["panel", "device", "refresh", "status", "list", "badge",
+      "table-wrap", "pagination", "page-info", "pages", "previous", "next", "page-size", "scroll-hint"]
       .map((key) => [key, document.getElementById(`history-${key}`)]));
     this.rows = [];
+    this.currentPage = 1;
+    this.total = 0;
     this.generation = 0;
     this.expected = new Map();
     this.drafts = new Map();
     this.saving = new Set();
-    this.ui.device.addEventListener("change", () => this.load());
+    this.ui.device.addEventListener("change", () => this.load({ page: 1 }));
     this.ui.refresh.addEventListener("click", () => this.load());
-    this.ui.more.addEventListener("click", () => this.load({ append: true }));
+    this.ui["page-size"].addEventListener("change", () => this.load({ page: 1 }));
+    this.ui.previous.addEventListener("click", () => this.load({ page: this.currentPage - 1 }));
+    this.ui.next.addEventListener("click", () => this.load({ page: this.currentPage + 1 }));
     this.syncDevices();
   }
 
@@ -31,8 +51,12 @@ class MeasurementHistory {
     for (const id of this.expected.keys()) if (!devices.includes(id)) this.expected.delete(id);
     if (previous !== this.ui.device.value || !devices.length) {
       this.rows = [];
+      this.currentPage = 1;
+      this.total = 0;
       this.ui.list.replaceChildren();
-      this.ui.more.hidden = true;
+      this.ui.pagination.hidden = true;
+      this.ui["table-wrap"].hidden = true;
+      this.ui["scroll-hint"].hidden = true;
       if (!this.ui.panel.hidden) this.load();
     }
   }
@@ -40,7 +64,11 @@ class MeasurementHistory {
   open(deviceId) {
     this.onOpen();
     this.syncDevices();
-    if (deviceId && this.getDevices().has(deviceId)) this.ui.device.value = deviceId;
+    if (deviceId && this.getDevices().has(deviceId) && this.ui.device.value !== deviceId) {
+      this.ui.device.value = deviceId;
+      this.currentPage = 1;
+    }
+    if (this.expected.has(this.ui.device.value)) this.currentPage = 1;
     this.ui.badge.hidden = true;
     this.load();
   }
@@ -48,58 +76,100 @@ class MeasurementHistory {
   notifyCompleted(deviceId, measurementId) {
     if (measurementId) this.expected.set(deviceId, measurementId);
     this.ui.badge.hidden = false;
-    if (!this.ui.panel.hidden && this.ui.device.value === deviceId) this.load();
+    if (!this.ui.panel.hidden && this.ui.device.value === deviceId) this.load({ page: 1 });
   }
 
-  async load({ append = false } = {}) {
+  setBusy(busy) {
+    this.ui.panel.setAttribute("aria-busy", String(busy));
+    this.ui.refresh.disabled = busy || !this.getDevices().has(this.ui.device.value);
+    this.ui["page-size"].disabled = busy;
+    this.ui.previous.disabled = busy || this.currentPage <= 1;
+    this.ui.next.disabled = busy || this.currentPage >= Math.ceil(this.total / Number(this.ui["page-size"].value));
+    this.ui.pages.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  }
+
+  renderPagination() {
+    const size = Number(this.ui["page-size"].value);
+    const pages = Math.max(1, Math.ceil(this.total / size));
+    this.ui.pagination.hidden = this.total === 0;
+    this.ui["page-info"].textContent = `Menampilkan ${(this.currentPage - 1) * size + 1}–${Math.min(this.currentPage * size, this.total)} dari ${this.total} rekaman · Halaman ${this.currentPage} dari ${pages}`;
+    this.ui.pages.replaceChildren();
+    historyPageNumbers(this.currentPage, pages).forEach((page) => {
+      if (page === null) {
+        const dots = document.createElement("span");
+        dots.textContent = "…";
+        this.ui.pages.append(dots);
+        return;
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost-btn";
+      button.textContent = page;
+      button.setAttribute("aria-label", `Halaman ${page}`);
+      if (page === this.currentPage) button.setAttribute("aria-current", "page");
+      button.addEventListener("click", () => this.load({ page }));
+      this.ui.pages.append(button);
+    });
+  }
+
+  async load({ page = this.currentPage } = {}) {
     const deviceId = this.ui.device.value;
     const device = this.getDevices().get(deviceId);
     const generation = ++this.generation;
-    if (!append) {
-      this.rows = [];
-      this.ui.list.replaceChildren();
-    }
-    this.ui.more.hidden = true;
+    const size = Number(this.ui["page-size"].value);
+    page = Math.max(1, page);
+    this.rows = [];
+    this.ui.list.replaceChildren();
+    this.ui["table-wrap"].hidden = true;
+    this.ui["scroll-hint"].hidden = true;
     if (!device) {
-      this.ui.panel.setAttribute("aria-busy", "false");
+      this.ui.pagination.hidden = true;
+      this.setBusy(false);
       this.ui.status.textContent = "Hubungkan perangkat menggunakan Device ID, Username, dan Password untuk membuka History.";
       return;
     }
-    this.ui.panel.setAttribute("aria-busy", "true");
-    this.ui.refresh.disabled = true;
+    this.setBusy(true);
     this.ui.status.textContent = "Memuat rekaman dari PostgreSQL…";
     try {
       let data;
-      const expected = append ? null : this.expected.get(deviceId);
+      const expected = page === 1 ? this.expected.get(deviceId) : null;
       for (let attempt = 0; attempt < 6; attempt += 1) {
-        data = await device.requestHistory("list", { limit: 20, offset: append ? this.rows.length : 0 });
+        data = await device.requestHistory("list", { limit: size, offset: (page - 1) * size });
         if (generation !== this.generation) return;
-        if (!Array.isArray(data?.measurements)) throw new Error("Respons History tidak valid.");
+        if (!Array.isArray(data?.measurements) || !Number.isSafeInteger(data.total) || data.total < 0) {
+          throw new Error("Respons pagination History tidak valid. Pastikan service storage telah diperbarui.");
+        }
+        const lastPage = Math.max(1, Math.ceil(data.total / size));
+        if (page > lastPage) { page = lastPage; continue; }
         if (!expected || data.measurements.some((row) => row.id === expected)) break;
         this.ui.status.textContent = "Perekaman selesai. Menunggu penyimpanan hasil di PostgreSQL…";
         await new Promise((resolve) => setTimeout(resolve, 1000));
         if (generation !== this.generation) return;
       }
-      const merged = new Map(this.rows.map((row) => [row.id, row]));
-      data.measurements.forEach((row) => merged.set(row.id, row));
-      this.rows = [...merged.values()];
+      this.currentPage = page;
+      this.total = data.total;
+      this.rows = data.measurements;
       this.render(device);
-      this.ui.more.hidden = !data.has_more;
+      this.ui["table-wrap"].hidden = this.rows.length === 0;
+      this.ui["scroll-hint"].hidden = this.rows.length === 0;
+      this.renderPagination();
       if (expected && !this.rows.some((row) => row.id === expected)) {
         this.ui.status.textContent = "Hasil terbaru belum tersimpan. Tekan Muat ulang; periksa service storage jika tetap belum muncul.";
       } else {
-        this.expected.delete(deviceId);
+        if (expected) this.expected.delete(deviceId);
         if (!this.ui.panel.hidden) this.ui.badge.hidden = true;
         this.ui.status.textContent = this.rows.length
-          ? `${this.rows.length} rekaman ditampilkan. Label boleh dibiarkan belum diisi.`
+          ? `Halaman ${page}: ${this.rows.length} dari ${this.total} rekaman. Label boleh dibiarkan belum diisi.`
           : "Belum ada rekaman selesai. Rekaman akan muncul setelah Submit dan perekaman 300 detik selesai.";
       }
     } catch (error) {
-      if (generation === this.generation) this.ui.status.textContent = `History gagal dimuat. ${error.message}`;
+      if (generation === this.generation) {
+        this.ui.pagination.hidden = true;
+        this.ui.status.textContent = `History gagal dimuat. ${error.message}`;
+      }
     } finally {
       if (generation === this.generation) {
-        this.ui.panel.setAttribute("aria-busy", "false");
-        this.ui.refresh.disabled = !this.getDevices().has(deviceId);
+        this.setBusy(false);
       }
     }
   }
@@ -110,48 +180,39 @@ class MeasurementHistory {
       ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "medium" }).format(date) : "—";
   }
 
-  label(value) {
-    return value === true ? "Diabetes" : value === false ? "Tidak diabetes" : "Belum diisi";
-  }
-
   render(device) {
     this.ui.list.replaceChildren();
     this.rows.forEach((row, index) => {
-      const entry = document.createElement("article");
+      const entry = document.createElement("tr");
       entry.className = "history-entry";
       entry.dataset.measurementId = row.id;
-      const head = document.createElement("header");
-      head.className = "history-entry-head";
-      const title = document.createElement("h3");
-      title.textContent = row.patient_name || "Nama pasien belum tersedia";
-      const badge = document.createElement("span");
-      badge.className = "tag";
-      badge.textContent = this.label(row.diabetes_label);
-      head.append(title, badge);
-      const meta = document.createElement("p");
-      meta.className = "history-meta";
-      meta.textContent = `${row.device_id} · ${this.date(row.started_at)} · Selesai · ${row.duration_seconds} detik`;
-      const metrics = document.createElement("dl");
-      metrics.className = "result history-metrics";
-      for (const [label, value, digits, unit] of [
-        ["SI rata-rata", row.si_mean, 4, "m/s"], ["HRV rata-rata", row.hrv_mean, 2, "ms"],
-        ["BMI", row.bmi, 2, "kg/m²"], ["Umur", row.age, 0, "th"],
-        ["Voltase rata-rata", row.voltage_mean, 3, "V"], ["ADC rata-rata", row.adc_mean, 0, ""],
+      const number = document.createElement("td");
+      number.textContent = (this.currentPage - 1) * Number(this.ui["page-size"].value) + index + 1;
+      const patient = document.createElement("th");
+      patient.scope = "row";
+      patient.className = "history-patient";
+      patient.textContent = row.patient_name || "Nama pasien belum tersedia";
+      const date = document.createElement("td");
+      date.className = "history-date";
+      date.textContent = this.date(row.started_at);
+      entry.append(number, patient, date);
+      for (const [value, digits] of [
+        [row.si_mean, 4], [row.hrv_mean, 2], [row.bmi, 2],
+        [row.age, 0], [row.voltage_mean, 3], [row.adc_mean, 0],
       ]) {
-        const cell = document.createElement("div");
-        const term = document.createElement("dt");
-        term.textContent = label;
-        const detail = document.createElement("dd");
-        detail.textContent = `${this.formatNumber(value, digits)}${unit ? ` ${unit}` : ""}`;
-        cell.append(term, detail);
-        metrics.append(cell);
+        const cell = document.createElement("td");
+        cell.className = "history-number";
+        cell.textContent = this.formatNumber(value, digits);
+        entry.append(cell);
       }
+      const labelCell = document.createElement("td");
       const form = document.createElement("form");
       form.className = "history-label-form";
       const field = document.createElement("div");
       field.className = "field";
       const label = document.createElement("label");
       label.textContent = "Label diabetes (opsional)";
+      label.className = "sr-only";
       const select = document.createElement("select");
       select.id = `history-label-${this.generation}-${index}`;
       label.htmlFor = select.id;
@@ -169,7 +230,7 @@ class MeasurementHistory {
       status.className = "history-label-status";
       status.setAttribute("role", "status");
       status.textContent = select.disabled ? "Menyimpan label…" : select.value !== savedValue() ? "Perubahan belum disimpan."
-        : row.label_updated_at ? `Diperbarui ${this.date(row.label_updated_at)}` : "Dapat diisi nanti.";
+        : row.label_updated_at ? `Diperbarui ${this.date(row.label_updated_at)}` : "";
       select.addEventListener("change", () => {
         this.drafts.set(row.id, { deviceId: device.deviceId, value: select.value });
         save.disabled = select.value === savedValue();
@@ -191,7 +252,6 @@ class MeasurementHistory {
           const current = this.rows.find((item) => item.id === row.id);
           if (current) Object.assign(current, { diabetes_label: result.diabetes_label, label_updated_at: result.label_updated_at });
           this.drafts.delete(row.id);
-          badge.textContent = this.label(row.diabetes_label);
           select.value = savedValue();
           status.textContent = `Label tersimpan. ${this.date(row.label_updated_at)}`;
         } catch (error) {
@@ -204,11 +264,32 @@ class MeasurementHistory {
         }
       });
       form.append(field, save, status);
-      entry.append(head, meta, metrics, form);
+      labelCell.append(form);
+      entry.append(labelCell);
+      const detailCell = document.createElement("td");
+      const detailButton = document.createElement("button");
+      detailButton.type = "button";
+      detailButton.className = "text-btn";
+      detailButton.textContent = "Detail";
+      detailButton.setAttribute("aria-expanded", "false");
+      const detailRow = document.createElement("tr");
+      detailRow.className = "history-detail-row";
+      detailRow.id = `history-detail-${this.generation}-${index}`;
+      detailRow.hidden = true;
+      detailButton.setAttribute("aria-controls", detailRow.id);
+      detailButton.setAttribute("aria-label", `Detail rekaman ${number.textContent}`);
+      detailButton.addEventListener("click", () => {
+        detailRow.hidden = !detailRow.hidden;
+        detailButton.setAttribute("aria-expanded", String(!detailRow.hidden));
+      });
+      const details = document.createElement("td");
+      details.colSpan = 11;
+      const meta = document.createElement("p");
+      meta.className = "history-meta";
+      meta.textContent = `${row.device_id} · Selesai ${this.date(row.finished_at)} · ${row.duration_seconds} detik · ${row.raw_sample_count ?? 0} sampel · ID ${row.id}`;
+      details.append(meta);
       if (Array.isArray(row.mfcc) && row.mfcc.length) {
-        const details = document.createElement("details");
-        details.className = "mfcc-details";
-        const summary = document.createElement("summary");
+        const summary = document.createElement("p");
         summary.textContent = "Detail koefisien MFCC rata-rata";
         const values = document.createElement("dl");
         values.className = "mfcc-values";
@@ -222,9 +303,15 @@ class MeasurementHistory {
           values.append(cell);
         });
         details.append(summary, values);
-        entry.append(details);
+      } else {
+        const empty = document.createElement("p");
+        empty.textContent = "Koefisien MFCC belum tersedia pada rekaman ini.";
+        details.append(empty);
       }
-      this.ui.list.append(entry);
+      detailRow.append(details);
+      detailCell.append(detailButton);
+      entry.append(detailCell);
+      this.ui.list.append(entry, detailRow);
     });
   }
 }

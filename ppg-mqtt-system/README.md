@@ -299,6 +299,17 @@ MFCC** untuk melihat nilai C01 sampai C13. Hasil perekaman dan diagnostik MQTT
 tersedia melalui panel terpisah yang dapat dibuka. Tema terang dan gelap
 dapat diubah melalui tombol tema pada header.
 
+Pilihan **PPG-001** dan **PPG-002** tersedia sejak halaman dibuka. Klik salah
+satu untuk mengisi Device ID dan Username, lalu masukkan Password dan tekan
+**Hubungkan**. Setelah salah satu akun bawaan berhasil terhubung, klik perangkat
+bawaan lainnya untuk menghubungkannya menggunakan password sesi yang sama.
+Password hanya digunakan dari koneksi MQTT yang aktif, tidak ditanamkan pada
+kode publik atau disimpan ke penyimpanan browser. Setelah halaman dimuat ulang,
+login pertama diperlukan kembali. Klik perangkat yang sudah ditambahkan untuk
+membuka panelnya, atau memilih perangkat tersebut jika menu History sedang
+dibuka. Status **Broker terhubung** menunjukkan koneksi MQTT, bukan jaminan
+bahwa alat fisik sedang mengirim data.
+
 Parameter SI, HRV, BMI, Umur, Voltase, dan ADC memakai enam kolom pada desktop,
 tiga kolom pada layar hingga 1050 piksel, dan dua kolom pada layar hingga
 520 piksel. Satuan berada di bawah nilai. Nilai panjang dapat membungkus ke
@@ -312,10 +323,15 @@ panel data MQTT.
    **Perekaman selesai** menyediakan tombol **Lihat di History**. Menu **History**
    juga dapat dibuka langsung untuk membaca rekaman sebelumnya.
 3. Pilih perangkat pada History. Rekaman dibaca dari PostgreSQL melalui service
-   `storage`, diurutkan dari yang terbaru, 20 rekaman per halaman. Gunakan
-   **Muat lebih banyak** untuk rekaman yang lebih lama.
-4. Setiap rekaman menampilkan nama pasien, waktu mulai, durasi, nilai rata-rata,
-   parameter pasien, dan detail koefisien MFCC yang tersedia.
+   `storage`, diurutkan dari yang terbaru, 10 rekaman per halaman. Pilih jumlah
+   baris **10**, **20**, atau **50**, lalu gunakan nomor halaman, **Sebelumnya**,
+   dan **Berikutnya** untuk berpindah. Jumlah seluruh rekaman dan rentang baris
+   ditampilkan di bawah tabel. Pergantian perangkat atau jumlah baris kembali
+   ke halaman pertama.
+4. Tabel menampilkan nama pasien, waktu mulai, SI, HRV, BMI, umur, voltase, ADC,
+   dan label opsional. Buka **Detail** untuk melihat durasi, waktu selesai,
+   jumlah sampel, ID rekaman, dan seluruh koefisien MFCC yang tersedia.
+   Pada layar kecil, geser tabel secara horizontal untuk melihat semua kolom.
 5. Dropdown **Label diabetes (opsional)** memiliki pilihan **Belum diisi**,
    **Diabetes**, dan **Tidak diabetes**. Pilih nilai lalu tekan **Simpan label**.
    Label boleh ditunda, diubah, atau dikosongkan kembali kapan saja.
@@ -338,6 +354,12 @@ menulis permintaan pada `ppg/<DEVICE_ID>/history/request` dan membaca balasan
 `ppg/<DEVICE_ID>/history/response/<CLIENT_ID>`. `storage` membaca permintaan dan
 menulis balasan. Respons menggunakan `request_id`, QoS 1, dan tidak di-retain.
 Izin alat tidak mencakup perangkat lain atau publikasi balasan History.
+Permintaan `list` memakai `limit` dan `offset`; respons menyertakan `total`
+rekaman selesai untuk perangkat yang diminta. Pagination dilakukan di service
+storage, bukan dengan mengunduh seluruh History ke browser. Untuk pembaruan
+dari versi History yang sudah berjalan, perbarui dan bangun ulang service
+`storage` terlebih dahulu sebelum menerbitkan aset frontend baru. Tidak ada
+perubahan skema PostgreSQL pada pembaruan tabel dan pagination ini.
 
 Pada broker yang sudah berjalan, terapkan pembaruan ACL sebelum menjalankan
 versi storage dan frontend yang baru:
@@ -370,7 +392,9 @@ sesi, MFCC, hasil terakhir, dan diagnostik topic. Device ID yang sama tidak
 dapat ditambahkan dua kali dan setiap panel memiliki tombol `Putuskan`.
 
 Gunakan `device_id`, `mqtt_username`, dan `mqtt_password` dari alat yang ingin
-dipantau. Password tidak pernah diisi otomatis atau disimpan oleh halaman.
+dipantau. Form password tidak pernah diisi otomatis atau disimpan oleh halaman;
+tombol perangkat bawaan hanya dapat memakai ulang password koneksi aktif
+setelah login berhasil.
 Batas sementara dapat dinaikkan melalui konstanta `MAX_DASHBOARDS` pada
 `frontend/app.js`; struktur HTML tidak perlu digandakan.
 

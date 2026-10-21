@@ -194,6 +194,7 @@ class StorageDatabaseIntegrationTest(unittest.TestCase):
         recording_id = self.new_measurement_id()
         self.db.start_measurement(device_id="PPG-HISTORY-TEST", payload=self.start_payload(recording_id), received_at=self.received_at)
         rows = self.db.list_history("PPG-HISTORY-TEST")
+        self.assertEqual(self.db.count_history("PPG-HISTORY-TEST"), 1)
         self.assertIn(completed_id, [row["id"] for row in rows])
         self.assertNotIn(other_id, [row["id"] for row in rows])
         self.assertNotIn(recording_id, [row["id"] for row in rows])
@@ -227,6 +228,7 @@ class StorageDatabaseIntegrationTest(unittest.TestCase):
         second = self.db.list_history("PPG-HISTORY-PAGES", limit=2, offset=2)
         self.assertEqual(len(first), 2)
         self.assertEqual(len(second), 1)
+        self.assertEqual(self.db.count_history("PPG-HISTORY-PAGES"), 3)
         self.assertTrue({row["id"] for row in first}.isdisjoint(row["id"] for row in second))
 
     def test_history_migration_preserves_legacy_recordings(self):
