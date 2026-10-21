@@ -11,6 +11,35 @@ FRONTEND = Path(__file__).resolve().parents[1] / "frontend"
 
 
 class FrontendUiContractTest(unittest.TestCase):
+    def test_vitals_keep_full_precision_and_reflow_without_clipping(self):
+        css = (FRONTEND / "styles.css").read_text(encoding="utf-8")
+        javascript = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+        def declarations(selector):
+            return re.search(re.escape(selector) + r"\s*\{([^}]+)\}", css).group(1)
+
+        row = declarations(".vital-row")
+        self.assertIn("flex-direction: column", row)
+        self.assertIn("align-items: flex-start", row)
+        for selector in (".vital-val", ".vital-unit"):
+            styles = declarations(selector)
+            with self.subTest(selector=selector):
+                self.assertIn("max-width: 100%", styles)
+                self.assertIn("overflow-wrap: anywhere", styles)
+                self.assertNotIn("overflow: hidden", styles)
+                self.assertNotIn("text-overflow", styles)
+                self.assertNotIn("white-space: nowrap", styles)
+
+        for width, columns in ((1050, 3), (520, 2)):
+            responsive = css.split(f"@media (max-width: {width}px)", 1)[1].split("@media", 1)[0]
+            self.assertRegex(responsive, r"\.device-vitals\s*\{[^}]*grid-template-columns:\s*"
+                             + rf"repeat\({columns}, minmax\(0, 1fr\)\)")
+
+        for identifier, digits in (("si", 4), ("hrv", 2), ("bmi", 2),
+                                   ("age", 0), ("volt", 2), ("adc", 0)):
+            self.assertRegex(javascript, rf'\{{ id: "{identifier}",[^\n]+digits: {digits} \}}')
+        self.assertIn("const text = formatNumber(value, digits);", javascript)
+
     def test_both_themes_have_readable_text_contrast(self):
         css = (FRONTEND / "styles.css").read_text(encoding="utf-8")
         themes = re.findall(r':root\[data-theme="(light|dark)"\]\s*\{([^}]+)\}', css)

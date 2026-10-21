@@ -299,6 +299,12 @@ MFCC** untuk melihat nilai C01 sampai C13. Hasil perekaman dan diagnostik MQTT
 tersedia melalui panel terpisah yang dapat dibuka. Tema terang dan gelap
 dapat diubah melalui tombol tema pada header.
 
+Parameter SI, HRV, BMI, Umur, Voltase, dan ADC memakai enam kolom pada desktop,
+tiga kolom pada layar hingga 1050 piksel, dan dua kolom pada layar hingga
+520 piksel. Satuan berada di bawah nilai. Nilai panjang dapat membungkus ke
+baris berikutnya tanpa dipotong atau mengurangi presisi, pada preview maupun
+panel data MQTT.
+
 Preview visual tersedia untuk [desktop tema terang](../docs/previews/frontend-desktop-light.png),
 [desktop tema gelap](../docs/previews/frontend-desktop-dark.png), dan
 [ponsel](../docs/previews/frontend-mobile-light.png). Untuk menjalankan preview
